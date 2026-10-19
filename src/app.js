@@ -48,7 +48,7 @@ const ordersRoutes = require("./modules/orders/orders.routes");
 const paymentsRoutes = require("./modules/payments/payments.routes");
 const productsRoutes = require("./modules/products/products.routes");
 const couponsRoutes = require("./modules/coupons/coupons.routes");
-const reviewsRoutes = require("./modules/reviews/reviews.routes");
+// Le module de routes des avis est absent du dépôt ; son import bloquait le démarrage.
 const clientsRoutes = require("./modules/clients/clients.routes");
 const settingsRoutes = require("./modules/settings/settings.routes");
 const subscriptionsRoutes = require("./modules/subscriptions/subscriptions.routes");
@@ -184,7 +184,7 @@ app.use("/api/orders", ordersRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/coupons", couponsRoutes);
-app.use("/api/reviews", reviewsRoutes);
+// Les avis restent indisponibles (404) jusqu’à l’ajout de leur module de routes.
 app.use("/api/clients", clientsRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/subscriptions", subscriptionsRoutes);
