@@ -1,0 +1,30 @@
+name: Backend setup
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  prisma:
+    runs-on: ubuntu-latest
+    env:
+      # Valeurs locales au runner, utilisées uniquement pour valider/générer le client.
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/mtechbenin
+      DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/mtechbenin
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v7
+      - name: Installer Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Installer les dépendances
+        run: npm ci
+      - name: Générer le client Prisma
+        run: npm run db:generate
