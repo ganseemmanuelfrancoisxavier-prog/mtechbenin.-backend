@@ -477,14 +477,16 @@ async function main() {
 
   let created = 0;
   for (const product of productsData) {
-    const result = await prisma.product.upsert({
+    const existing = await prisma.product.findUnique({
       where: { slug: product.slug },
-      update: {},
-      create: product,
+      select: { id: true },
     });
-    if (result.createdAt.getTime() === result.updatedAt.getTime()) created++;
+    if (existing) continue;
+
+    await prisma.product.create({ data: product });
+    created++;
   }
-  console.log(`Catalogue traité: ${productsData.length} produits dans le fichier; seuls les produits absents ont été créés.`);
+  console.log(`Catalogue prêt: ${created} nouveaux produits ajoutés sur ${productsData.length}.`);
 }
 
 main()
