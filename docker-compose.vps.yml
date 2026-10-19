@@ -1,0 +1,161 @@
+# Déploiement sur le VPS mutualisé (Contabo, socle /srv/infra).
+#
+# Appelé par /srv/infra/deploy.sh :
+#   docker compose -f docker-compose.vps.yml --env-file .env up -d
+#
+# Ce fichier ne sert QUE sur le VPS. Render lance `npm start` et l'ignore.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Préfixé par le nom du site : plusieurs projets cohabitent sur cette
+    # machine, et `api` seul entrerait en collision avec le voisin.
+    container_name: mtechbenin-api
+
+    restart: unless-stopped
+
+    # ── Configuration ────────────────────────────────────────────────────────
+    #
+    # `env_file` plutôt que `environment: KEY=${KEY}`, et ce n'est pas un
+    # détail de style : avec `${KEY}`, Compose ré-interprète la valeur, et un
+    # `$` qui s'y trouve est traité comme le début d'une variable. Or
+    # JWT_SECRET en contient un. La clé arriverait tronquée dans le conteneur,
+    # et TOUS les jetons admin deviendraient invalides — sans le moindre
+    # message d'erreur, puisque signer avec une mauvaise clé fonctionne très
+    # bien : c'est la vérification qui échoue, ailleurs et plus tard.
+    #
+    # `env_file` transmet le fichier tel quel, sans interpolation.
+    env_file:
+      - .env
+
+    environment:
+      # Dans un conteneur, l'application DOIT écouter sur toutes les
+      # interfaces : c'est le mappage de port ci-dessous qui la restreint à la
+      # boucle locale de l'hôte. Avec 127.0.0.1 ici, Docker ne l'atteindrait
+      # pas et le port publié resterait muet.
+      HOST: 0.0.0.0
+      PORT: 3001
+      NODE_ENV: production
+      # Hors du système de fichiers du conteneur, qui est recréé à chaque
+      # déploiement. Voir le volume plus bas.
+      WHATSAPP_SESSION_PATH: /data/whatsapp-session
+      # Borne le tas de V8, et ce n'est pas la meme chose que le plafond du
+      # conteneur.
+      #
+      # Mesure : a 768 Mo de plafond le demarrage culminait a 708 Mo (92 %) ; a
+      # 1 Go, a 942 Mo (92 %). La proportion est identique parce que Node 22 lit
+      # la limite du cgroup et dimensionne son tas dessus : il ne DEBORDE pas,
+      # il differe simplement ses collectes tant qu'il a de la place. Relever le
+      # plafond ne reduisait donc rien, cela deplacait la cible.
+      #
+      # 512 Mo de tas pour une application qui tient dans 86 Mo au repos : le
+      # plafond du conteneur redevient un filet de securite plutot qu'une valeur
+      # que le processus cherche a atteindre.
+      NODE_OPTIONS: "--max-old-space-size=512"
+      # Elagage periodique de la session WhatsApp, en heures. 0 desactive.
+      #
+      # Mesure : `sender-key-status@broadcast` — les cles de dechiffrement des
+      # STATUTS des contacts, dont ce bot n'a aucun usage — repasse de 0 a
+      # 2 045 fichiers et 3,83 Mo en vingt heures. Un passage quotidien suffit
+      # a empecher l'accumulation sans agiter la session.
+      WHATSAPP_ELAGAGE_HEURES: "24"
+      # Journal persistant, hors du conteneur.
+      #
+      # Les journaux Docker meurent avec le conteneur, que `compose up -d`
+      # recree a chaque deploiement. Une panne signalee comme survenant « a une
+      # certaine heure » n'a pas pu etre diagnostiquee : les traces de l'heure
+      # recherchee avaient ete effacees par le deploiement fait pour corriger
+      # autre chose.
+      LOG_DIR: /data/journaux
+
+    # Jamais exposé publiquement : nginx, sur l'hôte, termine le TLS et
+    # relaie. `HOST_PORT` est attribué par new-site.sh et vit dans le .env.
+    ports:
+      - "127.0.0.1:${HOST_PORT}:3001"
+
+    networks:
+      - infra
+
+    # ── Persistance de la session WhatsApp ───────────────────────────────────
+    #
+    # Sans ce volume, la session vit dans le conteneur — donc disparaît à
+    # CHAQUE déploiement, imposant de rescanner un QR à chaque mise à jour.
+    # Elle est aussi conservée en base, mais s'appuyer sur ce seul filet
+    # rallonge chaque démarrage et l'a déjà laissée se perdre.
+    volumes:
+      - whatsapp-session:/data/whatsapp-session
+      # Survit aux redeploiements, contrairement aux journaux Docker.
+      - journaux:/data/journaux
+
+    # ── Plafond mémoire ──────────────────────────────────────────────────────
+    #
+    # La machine n'a PAS de swap : un dépassement tue le conteneur sans
+    # préavis, et sans plafond un service qui fuit emporterait ses voisins.
+    #
+    # Mesuré, pas estimé : au repos ce conteneur tient dans 86 Mo, mais son
+    # DÉMARRAGE culmine à ~710 Mo — génération du client Prisma, migrations,
+    # restauration de la session WhatsApp depuis Supabase, initialisation de
+    # Baileys. À 768 Mo, ce pic occupait 92 % du plafond : un démarrage un peu
+    # plus lourd (session plus grosse, base plus lente) aurait suffi à faire
+    # tuer le conteneur, en boucle, avec l'apparence d'un déploiement cassé.
+    #
+    # 1,5 Go, et la raison n'est pas le tas de V8 : mesure en production, la
+    # memoire ANONYME atteint 924 Mo alors que `--max-old-space-size` est a
+    # 512 Mo. L'ecart est ailleurs — la session Baileys compte 25 884 fichiers,
+    # tenus en tampons (`Buffer`), qui sont de la memoire EXTERNE et echappent
+    # a cette borne. Reduire le tas n'y changerait donc rien.
+    #
+    # A 1 Go le conteneur tournait a 90 % sans swap : jamais tue, mais sans
+    # marge. La machine dispose de ~6,9 Go et le voisin est plafonne a 512 Mo.
+    #
+    # Le vrai correctif est en amont : 25 884 fichiers de session est anormal,
+    # et chaque sauvegarde les serialise en un seul JSON. A traiter separement.
+    #
+    # 01/09 — porte de 1,5 a 2,5 Go. Mesure : 1 228 Mo de memoire ANONYME apres
+    # deux heures d'execution, contre 438 Mo la veille au meme stade. La
+    # consommation croit avec le temps de fonctionnement, independamment de
+    # l'elagage de session qui, lui, fait son travail (base ramenee de 11,9 a
+    # 7,9 Mo). A 1,5 Go et sans swap, le conteneur aurait ete tue dans la nuit.
+    #
+    # Ceci ACHETE DU TEMPS, ne corrige rien. La machine dispose de 5,8 Go
+    # libres, le voisin est plafonne a 512 Mo : la marge existe. Mais une
+    # consommation qui croit sans borne finira par franchir n'importe quel
+    # plafond, et la cause reste a trouver.
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+
+    # La sonde interroge le service lui-même. Un conteneur qui tourne sans
+    # répondre n'est pas en bonne santé, et `docker ps` le dirait sain.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3001/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      # Généreux : le démarrage applique les migrations Prisma et restaure la
+      # session WhatsApp depuis Supabase.
+      start_period: 90s
+      retries: 3
+
+    # Laisse à l'arrêt propre le temps de sauvegarder la session WhatsApp
+    # (`shutdown()` dans src/app.js, sur SIGTERM). Trop court, une rotation de
+    # clé Baileys serait perdue et la session invalidée au redémarrage.
+    stop_grace_period: 15s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  whatsapp-session:
+  journaux:
+
+networks:
+  infra:
+    external: true
+    name: infra
