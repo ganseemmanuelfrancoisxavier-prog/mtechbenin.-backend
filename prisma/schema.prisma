@@ -1,0 +1,865 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── Commandes invité ──────────────────────────────────────────────────────────
+model Order {
+  id            String      @id @default(cuid())
+  reference     String      @unique
+  guestName     String
+  guestWhatsapp String
+  guestEmail    String?
+  city          String?
+  neighborhood  String?
+  instructions  String?
+  deliverySlot  String?
+  deliveryLat   Float?
+  deliveryLng   Float?
+  isGift        Boolean     @default(false)
+  giftName      String?
+  giftWhatsapp  String?
+  subtotal      Int
+  discount      Int         @default(0)
+  deliveryFee   Int         @default(0)
+  feeAmount     Int         @default(0)
+  total         Int
+  couponCode    String?
+  status        OrderStatus @default(PENDING)
+  paymentId     String?     @unique
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  items   OrderItem[]
+  payment Payment?
+  coupon  Coupon?     @relation(fields: [couponCode], references: [code])
+
+  @@index([guestWhatsapp])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model OrderItem {
+  id          String @id @default(cuid())
+  orderId     String
+  productSlug String
+  productName String
+  quantity    Int
+  unitPrice   Int
+  totalPrice  Int
+  variants    Json?
+  order       Order  @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+// ── Paiements ─────────────────────────────────────────────────────────────────
+model Payment {
+  id            String        @id @default(cuid())
+  fedapayTxId   String        @unique
+  amount        Int
+  method        String?
+  status        PaymentStatus @default(PENDING)
+  paidAt        DateTime?
+  receiptNumber String?
+  rawData       Json?
+  orderId       String?       @unique
+  subOrderId    String?       @unique
+  repairOrderId String?       @unique
+  createdAt     DateTime      @default(now())
+
+  order       Order?             @relation(fields: [orderId], references: [id])
+  subOrder    SubscriptionOrder? @relation(fields: [subOrderId], references: [id])
+  repairOrder RepairOrder?       @relation(fields: [repairOrderId], references: [id])
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  REFUNDED
+}
+
+// ── Produits & Catégories ─────────────────────────────────────────────────────
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  label     String
+  icon      String?
+  sortOrder Int       @default(0)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model Product {
+  id           String               @id @default(cuid())
+  name         String
+  slug         String               @unique
+  categorySlug String
+  price        Int
+  comparePrice Int?
+  stock        Int                  @default(0)
+  status       String               @default("En stock")
+  description  String?
+  specs        Json?
+  images       Json?
+  videoUrl     String?
+  featured     Boolean              @default(false)
+  active       Boolean              @default(true)
+  salesCount   Int                  @default(0)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  category     Category             @relation(fields: [categorySlug], references: [slug])
+  reviews      Review[]
+  variantTypes ProductVariantType[]
+
+  @@index([categorySlug])
+  @@index([active, featured])
+}
+
+// ── Variantes produit ─────────────────────────────────────────────────────────
+model ProductVariantType {
+  id               String                 @id @default(cuid())
+  productId        String
+  name             String
+  required         Boolean                @default(true)
+  sortOrder        Int                    @default(0)
+  createdAt        DateTime               @default(now())
+  characteristicId String?
+  product          Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  characteristic   Characteristic?        @relation(fields: [characteristicId], references: [id])
+  options          ProductVariantOption[]
+
+  @@index([productId])
+}
+
+model ProductVariantOption {
+  id          String               @id @default(cuid())
+  typeId      String
+  value       String
+  sortOrder   Int                  @default(0)
+  createdAt   DateTime             @default(now())
+  valueId     String?
+  priceDelta  Int                  @default(0)
+  variantType ProductVariantType   @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  libValue    CharacteristicValue? @relation(fields: [valueId], references: [id])
+
+  @@index([typeId])
+}
+
+// Bibliothèque partagée : une caractéristique est définie une fois puis
+// rattachée à plusieurs produits. Le vivier de valeurs est commun ; chaque
+// produit choisit son sous-ensemble et fixe ses propres suppléments.
+model Characteristic {
+  id        String                @id @default(cuid())
+  name      String                @unique
+  createdAt DateTime              @default(now())
+  values    CharacteristicValue[]
+  usedBy    ProductVariantType[]
+}
+
+model CharacteristicValue {
+  id               String                 @id @default(cuid())
+  characteristicId String
+  value            String
+  sortOrder        Int                    @default(0)
+  createdAt        DateTime               @default(now())
+  characteristic   Characteristic         @relation(fields: [characteristicId], references: [id], onDelete: Cascade)
+  usedBy           ProductVariantOption[]
+
+  @@unique([characteristicId, value])
+  @@index([characteristicId])
+}
+
+// ── Avis ──────────────────────────────────────────────────────────────────────
+model Review {
+  id          String   @id @default(cuid())
+  productSlug String
+  productName String
+  name        String
+  city        String?
+  rating      Int
+  text        String
+  approved    Boolean  @default(false)
+  featured    Boolean  @default(false)
+  date        String
+  // Jusqu'à 3 URLs Cloudinary jointes par le client. Json plutôt qu'une table
+  // dédiée : jamais requêtées individuellement, et cohérent avec Product.images.
+  // Nullable, donc les avis existants restent valides sans reprise de données.
+  photos      Json?
+  createdAt   DateTime @default(now())
+  product     Product  @relation(fields: [productSlug], references: [slug])
+
+  @@index([productSlug, approved])
+  @@index([featured])
+}
+
+// ── Coupons ───────────────────────────────────────────────────────────────────
+model Coupon {
+  id           String        @id @default(cuid())
+  code         String        @unique
+  type         CouponType
+  value        Int
+  minOrder     Int           @default(0)
+  maxUses      Int?
+  usedCount    Int           @default(0)
+  expiresAt    DateTime?
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  orders       Order[]
+  repairOrders RepairOrder[]
+
+  @@index([code, active])
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+}
+
+// ── Zones de livraison ────────────────────────────────────────────────────────
+model DeliveryZone {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  fee       Int
+  delay     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// ── Abonnements ───────────────────────────────────────────────────────────────
+model SubscriptionService {
+  id                 String   @id @default(cuid())
+  name               String
+  slug               String   @unique
+  tagline            String?
+  category           String   @default("family")
+  serviceStatus      String   @default("active")
+  // Ce service transfere-t-il ses codes de verification aux clients ?
+  //
+  // Rien ne permettait de dire « ce service ne transmet jamais de code ». Le
+  // routage se decidait sur la CATEGORIE (family / link_access), qui ne dit
+  // pourtant rien du sujet : elle decrit comment l'acces est livre, pas a qui
+  // appartiennent les codes qui arrivent dans la boite. Un service peut etre
+  // « family » et n'avoir aucun code a transmettre — c'est le cas d'Apple
+  // Music, ou les codes recus appartiennent au compte du commercant.
+  //
+  // `true` par defaut : les services existants gardent leur comportement, et
+  // l'administrateur desactive au cas par cas. Un defaut a `false` aurait
+  // coupe Netflix en silence a la migration.
+  transfertOtp       Boolean  @default(true)
+  maintenanceMessage String?
+  comingSoonMessage  String?
+  totalPlaces        Int      @default(0)
+  available          Boolean  @default(true)
+  mediaType          String   @default("gradient")
+  mediaUrl           String?
+  createdAt          DateTime @default(now())
+
+  plans   SubscriptionPlan[]
+  comptes StreamingAccount[]
+  orders  SubscriptionOrder[]
+}
+
+model SubscriptionPlan {
+  id             String   @id @default(cuid())
+  serviceId      String
+  label          String
+  duration       Int
+  price          Int
+  totalPlaces    Int      @default(0)
+  // Combien de personnes partagent UN profil de cette formule.
+  //
+  // La capacite se reglait profil par profil, dans deux ecrans differents, et
+  // rien ne garantissait la coherence : deux profils de la meme formule
+  // pouvaient accueillir 1 et 3 personnes sans que le client vendu sous cette
+  // formule le sache. La formule est desormais l'autorite ; les profils crees
+  // sous elle heritent de cette valeur.
+  //
+  // `FamilyAccount.capacite` reste la valeur EFFECTIVE, et ce n'est pas une
+  // redondance : c'est sur cette ligne que le placement pose son verrou
+  // (SELECT ... FOR UPDATE). Lire la capacite ailleurs que sur la ligne
+  // verrouillee rouvrirait la course que ce verrou ferme.
+  capaciteProfil Int      @default(1)
+  // Formule sans echeance : le client garde son acces indefiniment.
+  //
+  // Un booleen plutot qu'une valeur speciale de `duration` (0, -1, null) :
+  // `moisAchetes` REFUSE deja explicitement une duree nulle ou negative, et un
+  // nombre magique aurait traverse en silence les six endroits qui lisent
+  // `duration` — dont le routage OTP, qui aurait fini par couper l'acces d'un
+  // client « a vie ».
+  //
+  // `duration` reste renseigne (1) sur une formule a vie, et simplement
+  // ignore : la colonne est obligatoire, et une valeur absurde y ferait
+  // afficher « 0 mois » quelque part un jour.
+  aVie           Boolean  @default(false)
+  // Avantages de la formule, une ligne par puce, affichés tels quels au
+  // client sur la fiche du service. Une liste plutôt qu'un texte unique :
+  // l'admin les saisit ligne à ligne, et le rendu n'a pas à deviner où
+  // couper. Vide par défaut — une formule sans description reste valable.
+  description    String[]
+  createdAt      DateTime @default(now())
+
+  service     SubscriptionService @relation(fields: [serviceId], references: [id])
+  accounts    FamilyAccount[]
+  orders      SubscriptionOrder[]
+  linkClients LinkAccessClient[]
+  poolLinks   LinkAccessLink[]
+
+  @@index([serviceId])
+}
+
+// Le compte streaming physique (une adresse Netflix et son mot de passe).
+// Il porte le plafond de flux simultanés, qui est une propriété du compte et
+// non du profil : Netflix compte les flux sur tout le compte.
+model StreamingAccount {
+  id                String   @id @default(cuid())
+  serviceId         String
+  email             String
+  passwordEncrypted String
+  maxFluxSimultanes Int      @default(4)
+  createdAt         DateTime @default(now())
+
+  service  SubscriptionService @relation(fields: [serviceId], references: [id])
+  profils  FamilyAccount[]
+  demandes OtpRequest[]
+
+  @@unique([serviceId, email])
+}
+
+model FamilyAccount {
+  id                String             @id @default(cuid())
+  planId            String?
+  email             String
+  passwordEncrypted String
+  profile           String
+  profilePassword   String?
+  status            String             @default("disponible")
+  currentOrderId    String?
+  accountId         String?
+  capacite          Int                @default(1)
+  createdAt         DateTime           @default(now())
+  plan              SubscriptionPlan?  @relation(fields: [planId], references: [id])
+  account           StreamingAccount?  @relation(fields: [accountId], references: [id])
+  occupations       ProfileOccupancy[]
+
+  @@index([planId, status])
+  @@index([accountId])
+}
+
+// Une personne dans un profil, sur une période. Le nom et le numéro sont
+// recopiés depuis la commande au moment de l'attribution : l'historique doit
+// rester vrai même si la commande est modifiée ou supprimée plus tard.
+model ProfileOccupancy {
+  id               String    @id @default(cuid())
+  profileId        String
+  orderId          String
+  occupantName     String
+  occupantWhatsapp String
+  startedAt        DateTime  @default(now())
+  endsAt           DateTime?
+  releasedAt       DateTime?
+  createdAt        DateTime  @default(now())
+
+  profile  FamilyAccount     @relation(fields: [profileId], references: [id])
+  order    SubscriptionOrder @relation(fields: [orderId], references: [id])
+  demandes OtpRequest[]
+
+  @@index([profileId, releasedAt])
+  @@index([orderId])
+}
+
+// Une demande de code. Le client annonce qu'il attend un code de vérification ;
+// le prochain code reçu sur ce compte lui sera envoyé, à lui seul.
+//
+// `canal` vaut "whatsapp" ou "web". Conservé pour le journal : savoir par où
+// une demande est arrivée aide à trancher un litige.
+model OtpRequest {
+  id          String    @id @default(cuid())
+  accountId   String
+  occupancyId String
+  canal       String
+  requestedAt DateTime  @default(now())
+  expiresAt   DateTime
+  servedAt    DateTime?
+  otpLogId    String?
+
+  account   StreamingAccount @relation(fields: [accountId], references: [id])
+  occupancy ProfileOccupancy @relation(fields: [occupancyId], references: [id])
+
+  @@index([accountId, servedAt])
+  @@index([occupancyId])
+}
+
+// Réserve de liens d'accès, calque de FamilyAccount : l'administrateur la
+// remplit à l'avance, un paiement en consomme une ligne.
+//
+// `status: "envoyé"` signifie ici « consommé et attribué à une commande », pas
+// « reçu par le client » : la réservation précède l'envoi, et l'envoi peut
+// échouer. La livraison réelle se lit sur LinkAccessClient.
+model LinkAccessLink {
+  id             String    @id @default(cuid())
+  planId         String
+  link           String
+  status         String    @default("disponible") // "disponible" | "envoyé"
+  currentOrderId String?
+  // Date de RÉSERVATION, pas d'envoi — d'où le nom.
+  claimedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  // Un même lien ne peut figurer qu'une fois dans la réserve d'une formule.
+  // Sans cette contrainte, un lien collé deux fois par inadvertance était
+  // invisible à l'œil — l'écran tronque les URL, et deux invitations
+  // identiques n'y diffèrent par aucun caractère affiché — puis partait à
+  // deux clients successifs. La contrainte porte sur le couple : la même
+  // adresse reste légitime dans la réserve d'une AUTRE formule.
+  @@unique([planId, link])
+  @@index([planId, status])
+}
+
+model LinkAccessClient {
+  id        String           @id @default(cuid())
+  planId    String
+  name      String
+  whatsapp  String?
+  email     String?
+  link      String?
+  status    String           @default("en_attente")
+  paidAt    DateTime         @default(now())
+  sentAt    DateTime?
+  createdAt DateTime         @default(now())
+  plan      SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([planId, status])
+}
+
+model SubscriptionOrder {
+  id             String    @id @default(cuid())
+  serviceId      String
+  planId         String
+  clientName     String
+  clientWhatsapp String
+  clientEmail    String?
+  amount         Int
+  status         String    @default("PENDING")
+  paymentId      String?   @unique
+  isGift         Boolean   @default(false)
+  giftName       String?
+  giftWhatsapp   String?
+  createdAt      DateTime  @default(now())
+  // Référence de la commande panier (Order.reference) à l'origine de cet
+  // abonnement. Permet de rapprocher les deux tables de façon déterministe et
+  // de rejouer la réconciliation sans créer de doublon.
+  sourceOrderRef String?
+  // Date d'expiration enregistrée, et non plus déduite du montant payé : le
+  // montant inclut la quantité et d'éventuels frais, ce qui rendait la durée
+  // indéterminable pour 16 des 28 abonnements existants.
+  expiresAt      DateTime?
+  // Horodatage du rappel. Sa présence interdit un second envoi, ce qui rend la
+  // vérification périodique rejouable sans risque de doublon.
+  reminderSentAt DateTime?
+
+  service     SubscriptionService @relation(fields: [serviceId], references: [id])
+  plan        SubscriptionPlan    @relation(fields: [planId], references: [id])
+  payment     Payment?
+  otpLogs     OTPLog[]
+  occupations ProfileOccupancy[]
+
+  @@unique([sourceOrderRef, planId])
+  @@index([clientWhatsapp])
+  @@index([expiresAt])
+}
+
+model OTPLog {
+  id              String            @id @default(cuid())
+  orderId         String
+  otpCode         String
+  source          String            @default("imap")
+  sentViaWhatsapp Boolean           @default(false)
+  sentViaEmail    Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  expiresAt       DateTime?
+  order           SubscriptionOrder @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+// Journal de chaque mail de service traite par le bot OTP — refonte du
+// 13/10/2026. Sert deux fois :
+//   • GARDE D'UNICITE : la ligne est creee AVANT tout envoi, sur le Message-ID
+//     (cle unique). Un mail lu deux fois — present dans deux boites par renvoi,
+//     ou pris par deux passes concurrentes — n'est traite qu'une fois.
+//   • TRACE : boite, adresse ecrite, type, decision et raison. OTPLog ne
+//     gardait que la commande et le code ; l'audit du 13/10 a du reconstituer
+//     le reste dans les journaux du serveur, qui ne couvrent que deux jours.
+model OtpCourriel {
+  id            String    @id @default(cuid())
+  messageId     String    @unique
+  boite         String
+  adresseEcrite String?
+  expediteur    String?
+  sujet         String?
+  service       String?
+  // connexion | foyer | gestion | lien | information | non-verifie
+  type          String
+  code          String?
+  // en-cours | envoye | admin | ignore | refuse | echec
+  decision      String    @default("en-cours")
+  raison        String?
+  destinataire  String?
+  commandeId    String?
+  recuLe        DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([createdAt])
+}
+
+// ── Réparation d'appareils ────────────────────────────────────────────────────
+// Trois espaces FIGÉS : un enum plutôt qu'une table, parce que l'administrateur
+// ne doit pas pouvoir en créer un quatrième — pas de CRUD à écrire, pas d'espace
+// vide créé par mégarde.
+enum RepairSpace {
+  ANDROID
+  APPLE
+  PC
+}
+
+// Le niveau intermédiaire est tantôt un TYPE (Apple → iPhone), tantôt une MARQUE
+// (PC portable → Dell). Un `name` libre couvre les deux sans imposer une
+// profondeur qui ne vaudrait que pour une partie du catalogue.
+model RepairFamily {
+  id        String        @id @default(cuid())
+  space     RepairSpace
+  name      String
+  slug      String        @unique
+  sortOrder Int           @default(0)
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  models    RepairModel[]
+
+  @@index([space, active])
+}
+
+model RepairModel {
+  id        String       @id @default(cuid())
+  familyId  String
+  name      String
+  slug      String       @unique
+  sortOrder Int          @default(0)
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  family    RepairFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  jobs      RepairJob[]
+
+  @@index([familyId, active])
+}
+
+// Libellé libre, saisi modèle par modèle (« Écran », « Connecteur de charge »).
+// `delay` est indicatif et facultatif : « 48 h ».
+model RepairJob {
+  id        String         @id @default(cuid())
+  modelId   String
+  name      String
+  delay     String?
+  sortOrder Int            @default(0)
+  active    Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  model     RepairModel    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  options   RepairOption[]
+
+  @@index([modelId, active])
+}
+
+// LE PRIX VIT ICI, et nulle part ailleurs.
+//
+// Une même pièce existe en plusieurs qualités à des prix différents (origine,
+// compatible). Porter aussi un prix sur `RepairJob` créerait deux sources de
+// vérité — le défaut corrigé au prix fort sur `SubscriptionPlan.capaciteProfil`
+// puis sur `aVie`. Une réparation à qualité unique reçoit une option unique,
+// créée automatiquement par le panel : l'administrateur ne voit pas la
+// différence.
+model RepairOption {
+  id        String    @id @default(cuid())
+  jobId     String
+  label     String
+  price     Int
+  sortOrder Int       @default(0)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  job       RepairJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, active])
+}
+
+enum RepairKind {
+  REPARATION
+  DIAGNOSTIC
+}
+
+enum RepairStatus {
+  EN_ATTENTE
+  PAYEE
+  A_RECUPERER
+  RECUPEREE
+  EN_ATELIER
+  REPAREE
+  A_RENDRE
+  RENDUE
+  ANNULEE
+}
+
+// Réparation et diagnostic partagent cette table, distingués par `kind`.
+// Les deux portent un client, une adresse, un enlèvement, un statut, un
+// paiement, une référence et une date de retour ; seul le contenu diffère.
+// Deux tables auraient imposé d'écrire deux fois toute la logistique.
+model RepairOrder {
+  id        String     @id @default(cuid())
+  reference String     @unique
+  kind      RepairKind @default(REPARATION)
+  // La réparation issue d'un diagnostic pointe sur lui. L'appareil est déjà
+  // chez nous : pas de second enlèvement, pas de nouveaux frais.
+  parentId  String?
+
+  clientName     String
+  clientWhatsapp String
+  clientEmail    String?
+
+  // Instantanés : un modèle retiré du catalogue ne doit pas rendre une commande
+  // illisible.
+  space      RepairSpace
+  familyName String
+  modelName  String
+
+  // Diagnostic uniquement : ce que le client décrit de sa panne.
+  problemDescription String?
+
+  city         String?
+  neighborhood String?
+  instructions String?
+  pickupSlot   String?
+  pickupLat    Float?
+  pickupLng    Float?
+  zoneName     String?
+
+  subtotal   Int     @default(0)
+  discount   Int     @default(0)
+  // Diagnostic uniquement, 0 autorisé. Jamais déduit de la réparation qui suit.
+  pickupFee  Int     @default(0)
+  feeAmount  Int     @default(0)
+  // ATTENTION — ne veut PAS dire la même chose que `Order.total` :
+  // `Order.total` INCLUT les frais de service (`total = base + feeAmount`),
+  // c'est le montant affiché au client au checkout produit.
+  // `RepairOrder.total`, lui, les EXCLUT (`total = subtotal - discount`,
+  // `feeAmount` calculé par-dessus) : le montant à montrer au client est donc
+  // `total + feeAmount`, et c'est `total` seul qui part vers FedaPay. Voir le
+  // commentaire de contrat dans tarification.js et en tête de
+  // `creerCommandeReparation` (repairs.controller.js) avant d'aligner cette
+  // colonne sur `Order.total` ou de brancher le paiement du lot 2 dessus.
+  total      Int
+  couponCode String?
+
+  status     RepairStatus @default(EN_ATTENTE)
+  // Date prévue de restitution, saisie par l'administrateur, affichée au client
+  // si elle est remplie.
+  returnDate DateTime?
+  // Montant retenu quand l'appareil se révèle irréparable.
+  cancelledRetained Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items   RepairOrderItem[]
+  payment Payment?
+  coupon  Coupon?           @relation(fields: [couponCode], references: [code])
+  parent  RepairOrder?      @relation("DiagnosticSuivi", fields: [parentId], references: [id])
+  enfants RepairOrder[]     @relation("DiagnosticSuivi")
+
+  @@index([status])
+  @@index([clientWhatsapp])
+  @@index([createdAt])
+}
+
+// AUCUNE clé étrangère vers le catalogue, délibérément.
+//
+// `jobId` et `optionId` sont du texte simple. Conséquence voulue : le catalogue
+// se modifie et se supprime sans jamais buter sur l'historique — le mur contre
+// lequel les formules d'abonnement se sont cassées — et une commande payée
+// garde pour toujours ce que le client a vu et payé.
+model RepairOrderItem {
+  id            String  @id @default(cuid())
+  orderId       String
+  jobName       String
+  optionLabel   String
+  unitPrice     Int
+  delay         String?
+  jobId         String?
+  optionId      String?
+  horsCatalogue Boolean @default(false)
+
+  order RepairOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+// ── CRM ClientTracker ─────────────────────────────────────────────────────────
+model ClientTracker {
+  id           String   @id @default(cuid())
+  whatsapp     String   @unique
+  name         String
+  city         String?
+  totalOrders  Int      @default(0)
+  totalSpent   Int      @default(0)
+  points       Int      @default(0)
+  tier         String   @default("bronze")
+  firstOrderAt DateTime @default(now())
+  lastOrderAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([points])
+  @@index([tier])
+}
+
+// ── Hero Médias ───────────────────────────────────────────────────────────────
+model HeroMedia {
+  id          String   @id @default(cuid())
+  type        String   @default("gradient")
+  url         String?
+  active      Boolean  @default(true)
+  order       Int      @default(0)
+  tag         String?
+  title       String?
+  subtitle    String?
+  description String?
+  cta         String?
+  href        String?
+  badge       String?
+  bg          String?
+  categoryKey String?
+  createdAt   DateTime @default(now())
+}
+
+// ── Photos / vidéos de clients satisfaits (accueil) ───────────────────────────
+model ClientMedia {
+  id        String   @id @default(cuid())
+  type      String   @default("image") // "image" | "video"
+  url       String
+  caption   String?
+  active    Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([active, order])
+}
+
+// Emplacement publicitaire vendu à une marque tierce, affiché sur la page
+// d'accueil. Calque de ClientMedia : même couple type/url, même interrupteur
+// `active`, même `order`, même index.
+//
+// Pas de dates de début ni de fin : le propriétaire allume quand l'annonceur
+// paie et éteint quand c'est fini. Deux règles superposées rendraient une
+// annonce invisible pour deux raisons possibles, impossible à diagnostiquer
+// quand un annonceur appelle.
+model Advertisement {
+  id         String   @id @default(cuid())
+  type       String   @default("image") // "image" | "video"
+  url        String
+  // Nom de la marque. Obligatoire : c'est le libellé montré au visiteur ET ce
+  // qui permet d'identifier la ligne dans le panel.
+  advertiser String
+  caption    String?
+  // Site de l'annonceur. Facultatif : sans lui, l'annonce s'affiche sans être
+  // cliquable.
+  href       String?
+  active     Boolean  @default(true)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([active, order])
+}
+
+// ── Paramètres boutique ───────────────────────────────────────────────────────
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// ── Logs notifications ────────────────────────────────────────────────────────
+model NotificationLog {
+  id        String   @id @default(cuid())
+  type      String
+  channel   String
+  recipient String
+  content   String?
+  status    String   @default("sent")
+  sentAt    DateTime @default(now())
+
+  @@index([recipient])
+}
+
+// ── Session WhatsApp (persistance Baileys via Supabase) ───────────────────────
+model WhatsAppSession {
+  id        String   @id @default("main")
+  data      Json
+  updatedAt DateTime @updatedAt
+}
+
+// ── FAQ ───────────────────────────────────────────────────────────────────────
+model Faq {
+  id          String   @id @default(cuid())
+  category    String   @default("Général")
+  question    String
+  answer      String
+  orderIndex  Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPublished, orderIndex])
+  @@index([category])
+}
+
+// ── Pages légales ─────────────────────────────────────────────────────────────
+model LegalPage {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  content   String
+  updatedAt DateTime @updatedAt
+}
+
+// ── Messages de contact ───────────────────────────────────────────────────────
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  whatsapp  String
+  email     String?
+  subject   String
+  message   String
+  status    String   @default("new")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([whatsapp])
+}

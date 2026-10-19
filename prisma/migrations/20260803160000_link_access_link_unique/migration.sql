@@ -1,0 +1,11 @@
+-- Un même lien ne peut plus figurer deux fois dans la réserve d'une formule.
+--
+-- Strictement additif : un index unique posé sur une table qui, en production,
+-- est encore vide (aucune ligne dans "LinkAccessLink"). Aucune reprise de
+-- données n'est donc nécessaire et la création ne peut pas échouer sur un
+-- doublon préexistant.
+--
+-- La contrainte porte sur le COUPLE ("planId", "link") : la même adresse reste
+-- légitime dans la réserve d'une autre formule (même invitation famille
+-- proposée sur deux durées, par exemple).
+CREATE UNIQUE INDEX "LinkAccessLink_planId_link_key" ON "LinkAccessLink"("planId", "link");

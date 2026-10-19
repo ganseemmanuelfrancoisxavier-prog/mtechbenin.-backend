@@ -1,0 +1,67 @@
+# Unité systemd — ALTERNATIVE à PM2.
+#
+# Choisissez l'un OU l'autre, jamais les deux : ils redémarreraient tous deux
+# le même processus et se battraient pour le port 3001.
+#
+# systemd suffit ici et évite une dépendance de plus. PM2 apporte surtout ses
+# journaux et `pm2 monit` ; systemd a `journalctl`, qui fait le même travail.
+#
+# Installation :
+#   sudo cp deploy/mtechbenin-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mtechbenin-backend
+
+[Unit]
+Description=MTECHBENIN — API, bot WhatsApp et bot IMAP
+Documentation=https://github.com/TheSanctuaryDev/mtechbenin-backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mtechbenin
+Group=mtechbenin
+WorkingDirectory=/srv/mtechbenin/backend
+
+# `start:prod` lance node SEUL. Les migrations passent par `deploy:prepare`,
+# appelé par le script de déploiement — pas à chaque redémarrage : un
+# redémarrage en boucle rejouerait `prisma generate` indéfiniment, et chaque
+# tentative prendrait plusieurs secondes.
+ExecStart=/usr/bin/npm run start:prod
+
+Environment=NODE_ENV=production
+# Les secrets viennent de .env, lu par dotenv depuis WorkingDirectory.
+# `EnvironmentFile` n'est PAS utilisé : il ne sait pas lire les valeurs entre
+# guillemets ni les caractères d'échappement, et plusieurs de ces variables en
+# contiennent (URL de base, clés).
+
+Restart=always
+RestartSec=5s
+
+# Même frein que PM2 : au-delà de 10 échecs en 5 minutes, systemd abandonne.
+# Une base injoignable produit exactement ce profil, et un service arrêté et
+# visible vaut mieux qu'un redémarrage perpétuel qui masque la panne.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+# Laisse à l'arrêt propre le temps de sauvegarder la session WhatsApp
+# (`shutdown()` dans src/app.js, sur SIGTERM). Trop court, une rotation de clé
+# Baileys serait perdue et la session invalidée au redémarrage.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mtechbenin-backend
+
+# ── Durcissement ─────────────────────────────────────────────────────────────
+# `ReadWritePaths` doit inclure le dossier de session WhatsApp, sinon
+# `ProtectSystem=strict` empêche son écriture et la session ne survit à rien.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/mtechbenin/backend /var/lib/mtechbenin
+
+[Install]
+WantedBy=multi-user.target

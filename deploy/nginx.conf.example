@@ -1,0 +1,78 @@
+# Reverse proxy nginx pour le backend MTECHBENIN.
+#
+# À copier sur le VPS dans /etc/nginx/sites-available/mtechbenin-backend
+# puis à lier dans sites-enabled. Remplacez api.mtechbenin.com par votre
+# sous-domaine réel.
+#
+# Ce fichier ne contient PAS les directives TLS : `certbot --nginx` les ajoute
+# lui-même et crée la redirection HTTP → HTTPS. Le laisser en clair ici évite
+# de référencer des certificats qui n'existent pas encore, ce qui empêcherait
+# nginx de démarrer.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.mtechbenin.com;
+
+    # ── Corps des requêtes ───────────────────────────────────────────────────
+    # Le panel envoie les images encodées en base64, ce qui gonfle la requête
+    # d'environ un tiers. Le backend accepte jusqu'à 20 Mo sur les routes
+    # d'upload ; nginx doit donc laisser passer davantage, sinon il refuse
+    # AVANT le backend avec un 413 que l'admin ne comprendrait pas.
+    client_max_body_size 25M;
+
+    # ── Journaux ─────────────────────────────────────────────────────────────
+    access_log /var/log/nginx/mtechbenin-backend.access.log;
+    error_log  /var/log/nginx/mtechbenin-backend.error.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+
+        # ── En-têtes de transmission ─────────────────────────────────────────
+        # `X-Forwarded-For` et `X-Forwarded-Proto` sont indispensables : le
+        # backend fait `app.set("trust proxy", 1)` et s'en sert pour la
+        # limitation de débit. Sans eux, TOUTES les requêtes paraîtraient venir
+        # de 127.0.0.1 — un seul visiteur épuiserait le quota de tout le monde.
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket / connexions maintenues.
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # ── Délais ───────────────────────────────────────────────────────────
+        # Généreux à dessein : le démarrage applique les migrations Prisma, et
+        # certaines routes admin interrogent Supabase à froid. Un délai serré
+        # rendrait des 504 sur des requêtes qui aboutissent.
+        proxy_connect_timeout 10s;
+        proxy_send_timeout    120s;
+        proxy_read_timeout    120s;
+    }
+
+    # ── Webhook FedaPay ──────────────────────────────────────────────────────
+    # La signature est calculée sur le corps BRUT. nginx ne le modifie pas par
+    # défaut, mais on désactive explicitement toute mise en tampon ou
+    # transformation : une seule altération d'octet invalide la signature et
+    # le paiement serait rejeté alors que le client a payé.
+    location /api/payments/webhook {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;
+        proxy_buffering off;
+    }
+
+    # ── Sonde de santé ───────────────────────────────────────────────────────
+    # Sans journalisation : UptimeRobot l'appelle toutes les quelques minutes et
+    # noierait le journal d'accès.
+    location /health {
+        proxy_pass http://127.0.0.1:3001/health;
+        access_log off;
+    }
+}
