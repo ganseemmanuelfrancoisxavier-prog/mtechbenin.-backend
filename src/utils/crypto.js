@@ -4,6 +4,9 @@ const logger = require("./logger");
 const ALGORITHM      = "aes-256-cbc";
 const FALLBACK_KEY   = "mtechbenin_aes_key_2026_32chars_!!";
 const SECRET_KEY     = process.env.AES_SECRET_KEY || FALLBACK_KEY;
+const KEY            = crypto.scryptSync(SECRET_KEY, "salt", 32);
+const LEGACY_KEY     = crypto.scryptSync(FALLBACK_KEY, "salt", 32);
+const VERSION_PREFIX = "v2:";
 
 const CLE_PAR_DEFAUT = !process.env.AES_SECRET_KEY;
 
@@ -21,7 +24,14 @@ if (CLE_PAR_DEFAUT) {
   );
 }
 
-const KEY = crypto.scryptSync(SECRET_KEY, "salt", 32);
+function decryptWithKey(key, ivHex, encryptedHex) {
+  const iv        = Buffer.from(ivHex, "hex");
+  const encrypted = Buffer.from(encryptedHex, "hex");
+  if (iv.length !== 16) throw new Error("Vecteur d'initialisation invalide");
+  const decipher  = crypto.createDecipheriv(ALGORITHM, key, iv);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return decrypted.toString();
+}
 
 function encrypt(text) {
   if (CLE_PAR_DEFAUT && process.env.NODE_ENV === "production") {
@@ -33,23 +43,41 @@ function encrypt(text) {
   const iv         = crypto.randomBytes(16);
   const cipher     = crypto.createCipheriv(ALGORITHM, KEY, iv);
   const encrypted  = Buffer.concat([cipher.update(text), cipher.final()]);
-  return iv.toString("hex") + ":" + encrypted.toString("hex");
+  return VERSION_PREFIX + iv.toString("hex") + ":" + encrypted.toString("hex");
 }
 
-// Lève une exception explicite sur une valeur qui n'a pas la forme attendue,
-// au lieu de laisser `Buffer.from(undefined, "hex")` produire une erreur
-// obscure. Les appelants distinguent ainsi « valeur absente » de « mauvaise clé ».
+// Les valeurs déjà stockées sans préfixe ont été chiffrées avec l'ancienne clé
+// publique. Les nouvelles portent le préfixe v2 et utilisent AES_SECRET_KEY.
 function decrypt(encryptedText) {
   if (typeof encryptedText !== "string" || !encryptedText.includes(":")) {
     throw new Error("Valeur chiffrée absente ou malformée");
   }
-  const [ivHex, encryptedHex] = encryptedText.split(":");
-  const iv        = Buffer.from(ivHex, "hex");
-  const encrypted = Buffer.from(encryptedHex, "hex");
-  if (iv.length !== 16) throw new Error("Vecteur d'initialisation invalide");
-  const decipher  = crypto.createDecipheriv(ALGORITHM, KEY, iv);
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString();
+
+  if (encryptedText.startsWith(VERSION_PREFIX)) {
+    const [ivHex, encryptedHex, ...extra] = encryptedText.slice(VERSION_PREFIX.length).split(":");
+    if (!ivHex || !encryptedHex || extra.length > 0) {
+      throw new Error("Valeur chiffrée v2 malformée");
+    }
+    return decryptWithKey(KEY, ivHex, encryptedHex);
+  }
+
+  const [ivHex, encryptedHex, ...extra] = encryptedText.split(":");
+  if (!ivHex || !encryptedHex || extra.length > 0) {
+    throw new Error("Valeur chiffrée ancienne malformée");
+  }
+
+  // Garder la clé publique uniquement pour lire les anciennes valeurs ; ne
+  // jamais l'utiliser pour créer un nouveau secret.
+  const legacyKeys = SECRET_KEY === FALLBACK_KEY ? [KEY] : [LEGACY_KEY, KEY];
+  let lastError;
+  for (const key of legacyKeys) {
+    try {
+      return decryptWithKey(key, ivHex, encryptedHex);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Impossible de déchiffrer la valeur");
 }
 
 module.exports = { encrypt, decrypt };
