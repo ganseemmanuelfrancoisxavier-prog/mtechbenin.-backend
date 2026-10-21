@@ -1,6 +1,52 @@
 const cloudinary = require("../../services/cloudinary");
 const logger = require("../../utils/logger");
 
+const DOSSIERS_UPLOAD = new Set([
+  "mtechbenin/products",
+  "mtechbenin/hero",
+  "mtechbenin/ads",
+  "mtechbenin/clients",
+  "mtechbenin/subscriptions",
+]);
+
+async function createUploadSignature(req, res) {
+  const { folder = "mtechbenin/products", resourceType = "image" } = req.body || {};
+
+  if (!DOSSIERS_UPLOAD.has(folder)) {
+    return res.status(400).json({ error: "Dossier d’upload invalide" });
+  }
+  if (resourceType !== "image" && resourceType !== "video") {
+    return res.status(400).json({ error: "Type de média invalide" });
+  }
+
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (!cloudName || !apiKey || !apiSecret) {
+    return res.status(503).json({ error: "Configuration Cloudinary incomplète" });
+  }
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const transformation = resourceType === "video"
+    ? "q_auto/c_limit,w_1280"
+    : "q_auto,f_webp/c_limit,w_1200";
+  const signedParams = { folder, timestamp, transformation };
+
+  try {
+    const signature = cloudinary.utils.api_sign_request(signedParams, apiSecret);
+    return res.json({
+      cloudName,
+      apiKey,
+      resourceType,
+      ...signedParams,
+      signature,
+    });
+  } catch (err) {
+    logger.error("Erreur génération signature upload Cloudinary", { err: err.message });
+    return res.status(500).json({ error: "Impossible de préparer l’upload média" });
+  }
+}
+
 async function uploadMedia(req, res) {
   try {
     const { image, folder = "mtechbenin/products" } = req.body;
@@ -59,4 +105,4 @@ async function deleteMedia(req, res) {
   }
 }
 
-module.exports = { uploadMedia, deleteMedia };
+module.exports = { createUploadSignature, uploadMedia, deleteMedia };
