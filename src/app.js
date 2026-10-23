@@ -27,7 +27,7 @@ function jetonQrValide(jeton) {
   if (!secret || !jeton) return false;
   return timingSafeEqualStr(jeton, secret);
 }
-const { apiLimiter } = require("./middleware/rateLimiter");
+const { apiLimiter, qrLimiter } = require("./middleware/rateLimiter");
 const { errorHandler } = require("./middleware/errorHandler");
 const {
   initWhatsApp,
@@ -112,6 +112,10 @@ app.use("/api", (req, res, next) => {
   const adminKey = req.headers["x-admin-key"];
   if (adminKey && process.env.ADMIN_API_KEY && timingSafeEqualStr(adminKey, process.env.ADMIN_API_KEY)) {
     return next();
+  }
+  // Le poll QR n'est exempté de la limite générale que si le secret est valide.
+  if (req.method === "GET" && req.path === "/whatsapp/qr" && jetonQrValide(req.query.token)) {
+    return qrLimiter(req, res, next);
   }
   return apiLimiter(req, res, next);
 });
