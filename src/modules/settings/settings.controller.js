@@ -21,6 +21,8 @@ const PUBLIC_KEYS = [
   // d'enlèvement ») — sans cette clé, aucune page publique ne peut afficher
   // ce montant ni savoir s'il y a même quelque chose à payer.
   "fraisEnlevementReparation",
+  // Liste d’appareils administrable pour l’espace public /smartphones.
+  "smartphoneHubDevices",
 ];
 
 async function getPublicSettings(req, res) {
