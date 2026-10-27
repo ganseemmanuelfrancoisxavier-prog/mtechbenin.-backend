@@ -179,6 +179,33 @@ async function approveReview(req, res) {
   }
 }
 
+async function updateReviewDate(req, res) {
+  try {
+    const match = /^([0-9]{4})-([0-9]{2})$/.exec(String(req.body.date || ""));
+    if (!match) {
+      return res.status(400).json({ error: "Choisissez un mois et une année valides." });
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    if (year < 1900 || year > 2100 || month < 1 || month > 12) {
+      return res.status(400).json({ error: "Choisissez un mois et une année valides." });
+    }
+    const date = new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("fr-FR", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+    const review = await prisma.review.update({
+      where: { id: req.params.id },
+      data: { date },
+    });
+    return res.json({ review });
+  } catch (err) {
+    logger.error("Erreur updateReviewDate", { err: err.message });
+    return res.status(400).json({ error: "Impossible de modifier la date de cet avis." });
+  }
+}
+
 async function toggleFeatured(req, res) {
   try {
     const existing = await prisma.review.findUnique({
@@ -214,6 +241,7 @@ module.exports = {
   getPendingReviews,
   getApprovedReviews, // ← NOUVEAU
   approveReview,
+  updateReviewDate,
   toggleFeatured,
   deleteReview,
 };

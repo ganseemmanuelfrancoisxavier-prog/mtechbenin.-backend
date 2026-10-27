@@ -9,6 +9,7 @@ const {
   getPendingReviews,
   getApprovedReviews,
   approveReview,
+  updateReviewDate,
   toggleFeatured,
   deleteReview,
 } = require("./reviews.controller");
@@ -38,6 +39,7 @@ router.post("/photos", photoLimiter, uploadReviewPhoto);
 router.post("/", createReview);
 
 router.patch("/admin/:id/approve", isAdmin, approveReview);
+router.patch("/admin/:id/date", isAdmin, updateReviewDate);
 router.patch("/admin/:id/featured", isAdmin, toggleFeatured);
 router.delete("/admin/:id", isAdmin, deleteReview);
 
