@@ -114,7 +114,7 @@ app.use("/api", (req, res, next) => {
   if (adminKey && process.env.ADMIN_API_KEY && timingSafeEqualStr(adminKey, process.env.ADMIN_API_KEY)) {
     return next();
   }
-  // Le poll QR n'est exempté de la limite générale que si le secret est valide.
+  // Les endpoints QR utilisent leur plafond dédié; celui du panel vérifie ensuite le JWT admin.
   if (req.method === "GET" && (req.path === "/whatsapp/admin/qr" || (req.path === "/whatsapp/qr" && jetonQrValide(req.query.token)))) {
     return qrLimiter(req, res, next);
   }
