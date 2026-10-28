@@ -115,7 +115,7 @@ app.use("/api", (req, res, next) => {
     return next();
   }
   // Le poll QR n'est exempté de la limite générale que si le secret est valide.
-  if (req.method === "GET" && req.path === "/whatsapp/qr" && jetonQrValide(req.query.token)) {
+  if (req.method === "GET" && (req.path === "/whatsapp/admin/qr" || (req.path === "/whatsapp/qr" && jetonQrValide(req.query.token)))) {
     return qrLimiter(req, res, next);
   }
   return apiLimiter(req, res, next);
@@ -204,6 +204,19 @@ app.use("/api/faq", faqRoutes);
 app.use("/api/legal", legalRoutes);
 app.use("/api/characteristics", characteristicRoutes);
 app.use("/api/stats", statsRoutes);
+
+// QR d'appairage accessible depuis le panel admin avec son authentification JWT.
+app.get("/api/whatsapp/admin/qr", isAdmin, async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (isConnected()) return res.json({ status: "connected", image: null });
+  if (!global.lastQR) return res.json({ status: "waiting_qr", image: null });
+  try {
+    const image = await QRCode.toDataURL(global.lastQR);
+    return res.json({ status: "waiting_qr", image });
+  } catch {
+    return res.status(500).json({ error: "Impossible de générer le QR WhatsApp" });
+  }
+});
 
 app.get("/api/whatsapp/qr", async (req, res) => {
   const token = req.query.token;
