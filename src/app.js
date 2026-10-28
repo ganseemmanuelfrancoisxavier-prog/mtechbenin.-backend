@@ -6,6 +6,7 @@ const morgan = require("morgan");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 const logger = require("./utils/logger");
+const prisma = require("./services/prisma");
 
 // Comparaison à temps constant pour les secrets en clair (ADMIN_API_KEY, QR_SECRET).
 function timingSafeEqualStr(a, b) {
@@ -429,6 +430,24 @@ function appliquerMigrations() {
 
 async function startServer() {
   appliquerMigrations();
+
+  try {
+    await prisma.category.upsert({
+      where: { slug: "sextoys" },
+      update: {},
+      create: {
+        name: "Sextoys",
+        label: "Sextoys",
+        slug: "sextoys",
+        icon: "🌸",
+        sortOrder: 7,
+        active: true,
+      },
+    });
+    logger.info("Catégorie Sextoys vérifiée dans le catalogue");
+  } catch (err) {
+    logger.error("Erreur création catégorie Sextoys", { err: err.message });
+  }
 
   app.listen(PORT, HOST, () => {
     logger.info(`🚀 MTECHBENIN Backend démarré sur ${HOST}:${PORT}`);
