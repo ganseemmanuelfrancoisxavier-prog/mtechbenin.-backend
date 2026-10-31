@@ -32,15 +32,58 @@ const {
 
 async function getServices(req, res) {
   try {
-    const services = await prisma.subscriptionService.findMany({
-      where: { available: true },
-      include: { plans: { orderBy: { price: "asc" } } },
-      orderBy: { name: "asc" },
-    });
-    return res.json({ services });
+    const [services, ordreEnregistre] = await Promise.all([
+      prisma.subscriptionService.findMany({
+        where: { available: true },
+        include: { plans: { orderBy: { price: "asc" } } },
+        orderBy: { name: "asc" },
+      }),
+      prisma.setting.findUnique({ where: { key: "subscriptionCategoryOrder" } }),
+    ]);
+    return res.json({ services, categoryOrder: lireOrdreCategories(ordreEnregistre?.value) });
   } catch (err) {
     logger.error("Erreur getServices", { err: err.message });
     return res.status(500).json({ error: "Erreur serveur" });
+  }
+}
+
+const ORDRE_CATEGORIES_PAR_DEFAUT = ["family", "link_access"];
+function lireOrdreCategories(value) {
+  try {
+    const ordre = JSON.parse(value);
+    if (
+      Array.isArray(ordre) &&
+      ordre.length === 2 &&
+      new Set(ordre).size === 2 &&
+      ordre.every((c) => ORDRE_CATEGORIES_PAR_DEFAUT.includes(c))
+    ) return ordre;
+  } catch {
+    // Utilise l'ordre par défaut avant la première configuration.
+  }
+  return ORDRE_CATEGORIES_PAR_DEFAUT;
+}
+
+async function updateCategoryOrder(req, res) {
+  const { categoryOrder } = req.body || {};
+  if (
+    !Array.isArray(categoryOrder) ||
+    categoryOrder.length !== 2 ||
+    new Set(categoryOrder).size !== 2 ||
+    !categoryOrder.every((c) => ORDRE_CATEGORIES_PAR_DEFAUT.includes(c))
+  ) {
+    return res.status(400).json({ error: "Ordre des catégories invalide" });
+  }
+  try {
+    const value = JSON.stringify(categoryOrder);
+    await prisma.setting.upsert({
+      where: { key: "subscriptionCategoryOrder" },
+      create: { key: "subscriptionCategoryOrder", value },
+      update: { value },
+    });
+    return res.json({ categoryOrder });
+  } catch (err) {
+    logger.error("Erreur updateCategoryOrder", { err: err.message });
+    return res.status(500).json({ error: "Impossible d'enregistrer l'ordre des catégories" });
   }
 }
 
@@ -825,6 +868,58 @@ async function getAllOrders(req, res) {
   }
 }
 
+async function deleteOrder(req, res) {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const order = await tx.subscriptionOrder.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, clientName: true },
+      });
+      if (!order) return null;
+
+      const occupations = await tx.profileOccupancy.findMany({
+        where: { orderId: order.id },
+        select: { id: true, profileId: true },
+      });
+      const occupationIds = occupations.map((item) => item.id);
+      const profileIds = [...new Set(occupations.map((item) => item.profileId))];
+
+      if (occupationIds.length) {
+        await tx.otpRequest.deleteMany({
+          where: { occupancyId: { in: occupationIds } },
+        });
+        await tx.profileOccupancy.deleteMany({
+          where: { id: { in: occupationIds } },
+        });
+      }
+      await tx.oTPLog.deleteMany({ where: { orderId: order.id } });
+      // Conserve la trace comptable, mais retire son lien vers l'abonnement supprimé.
+      await tx.payment.updateMany({
+        where: { subOrderId: order.id },
+        data: { subOrderId: null },
+      });
+      await tx.familyAccount.updateMany({
+        where: { currentOrderId: order.id },
+        data: { currentOrderId: null, status: "disponible" },
+      });
+      for (const profileId of profileIds) await synchroniserMiroirProfil(tx, profileId);
+      await tx.linkAccessLink.updateMany({
+        where: { currentOrderId: order.id },
+        data: { currentOrderId: null },
+      });
+      await tx.subscriptionOrder.delete({ where: { id: order.id } });
+      return order;
+    });
+
+    if (!result) return res.status(404).json({ error: "Commande introuvable" });
+    logger.warn("Commande d'abonnement supprimée par l'administrateur", { orderId: result.id });
+    return res.json({ message: `Commande de ${result.clientName} supprimée` });
+  } catch (err) {
+    logger.error("Erreur deleteOrder abonnement", { err: err.message });
+    return res.status(500).json({ error: "Impossible de supprimer cette commande" });
+  }
+}
+
 async function getAdminDashboard(req, res) {
   try {
     const services = await prisma.subscriptionService.findMany({
@@ -911,6 +1006,11 @@ async function getAdminDashboard(req, res) {
 
     return res.json({
       services: servicesWithDecrypted,
+      categoryOrder: lireOrdreCategories(
+        (await prisma.setting.findUnique({
+          where: { key: "subscriptionCategoryOrder" },
+        }))?.value,
+      ),
       stats: {
         totalOrders,
         pendingOrders,
@@ -973,11 +1073,121 @@ async function updateService(req, res) {
 
 async function deleteService(req, res) {
   try {
-    await prisma.subscriptionService.update({
-      where: { id: req.params.id },
-      data: { available: false },
+    const resultat = await prisma.$transaction(async (tx) => {
+      const service = await tx.subscriptionService.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, name: true },
+      });
+      if (!service) return { introuvable: true };
+
+      const plans = await tx.subscriptionPlan.findMany({
+        where: { serviceId: service.id },
+        select: { id: true },
+      });
+      const planIds = plans.map((plan) => plan.id);
+      const accounts = await tx.streamingAccount.findMany({
+        where: { serviceId: service.id },
+        select: { id: true },
+      });
+      const accountIds = accounts.map((account) => account.id);
+      const profiles = await tx.familyAccount.findMany({
+        where: {
+          OR: [
+            ...(planIds.length ? [{ planId: { in: planIds } }] : []),
+            ...(accountIds.length ? [{ accountId: { in: accountIds } }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+      const profileIds = profiles.map((profile) => profile.id);
+      const orders = await tx.subscriptionOrder.findMany({
+        where: {
+          OR: [
+            { serviceId: service.id },
+            ...(planIds.length ? [{ planId: { in: planIds } }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+      const orderIds = orders.map((order) => order.id);
+
+      const occupations = await tx.profileOccupancy.findMany({
+        where: {
+          OR: [
+            ...(orderIds.length ? [{ orderId: { in: orderIds } }] : []),
+            ...(profileIds.length ? [{ profileId: { in: profileIds } }] : []),
+          ],
+        },
+        select: { id: true, profileId: true, orderId: true },
+      });
+      const orderIdsSet = new Set(orderIds);
+      const commandeIdsAutresServices = [
+        ...new Set(occupations.map((occupation) => occupation.orderId)),
+      ].filter((orderId) => !orderIdsSet.has(orderId));
+      if (commandeIdsAutresServices.length) {
+        const commandesAutresServices = await tx.subscriptionOrder.count({
+          where: { id: { in: commandeIdsAutresServices } },
+        });
+        if (commandesAutresServices) return { conflit: commandesAutresServices };
+      }
+
+      const occupationIds = occupations.map((occupation) => occupation.id);
+      const profilIdsTouches = [...new Set(occupations.map((occupation) => occupation.profileId))];
+      if (occupationIds.length) {
+        await tx.otpRequest.deleteMany({ where: { occupancyId: { in: occupationIds } } });
+        await tx.profileOccupancy.deleteMany({ where: { id: { in: occupationIds } } });
+      }
+      if (accountIds.length) {
+        await tx.otpRequest.deleteMany({ where: { accountId: { in: accountIds } } });
+      }
+      if (orderIds.length) {
+        await tx.oTPLog.deleteMany({ where: { orderId: { in: orderIds } } });
+        await tx.payment.updateMany({
+          where: { subOrderId: { in: orderIds } },
+          data: { subOrderId: null },
+        });
+        await tx.linkAccessLink.updateMany({
+          where: { currentOrderId: { in: orderIds } },
+          data: { currentOrderId: null },
+        });
+        await tx.subscriptionOrder.deleteMany({ where: { id: { in: orderIds } } });
+      }
+      for (const profileId of profilIdsTouches) {
+        // Les profils du service seront supprimés plus bas. Ce recalcul n'est
+        // utile que si un profil partagé appartient encore à une autre formule.
+        if (!profileIds.includes(profileId)) await synchroniserMiroirProfil(tx, profileId);
+      }
+      if (planIds.length) {
+        await tx.linkAccessClient.deleteMany({ where: { planId: { in: planIds } } });
+        await tx.linkAccessLink.deleteMany({ where: { planId: { in: planIds } } });
+      }
+      if (profileIds.length) {
+        await tx.familyAccount.deleteMany({ where: { id: { in: profileIds } } });
+      }
+      if (accountIds.length) {
+        await tx.streamingAccount.deleteMany({ where: { id: { in: accountIds } } });
+      }
+      if (planIds.length) {
+        await tx.subscriptionPlan.deleteMany({ where: { id: { in: planIds } } });
+      }
+      await tx.subscriptionService.delete({ where: { id: service.id } });
+      return { service, commandes: orderIds.length };
+    }, { timeout: 30000, maxWait: 10000 });
+
+    if (resultat.introuvable) {
+      return res.status(404).json({ error: "Service introuvable" });
+    }
+    if (resultat.conflit) {
+      return res.status(409).json({
+        error: "Ce service possède des profils utilisés par une commande d'un autre service. Supprimez ou déplacez d'abord ces occupations.",
+      });
+    }
+    require("../../../workers/otpRouting").viderCacheServices();
+    logger.warn("Service d'abonnement supprimé définitivement", {
+      serviceId: resultat.service.id,
+      commandes: resultat.commandes,
     });
-    return res.json({ message: "Service désactivé" });
+    return res.json({ message: `Service « ${resultat.service.name} » supprimé définitivement` });
   } catch (err) {
     logger.error("Erreur deleteService", { err: err.message });
     return res.status(400).json({ error: err.message });
@@ -2831,6 +3041,16 @@ async function addLinkClient(req, res) {
   }
 }
 
+async function deleteLinkClient(req, res) {
+  try {
+    await prisma.linkAccessClient.delete({ where: { id: req.params.id } });
+    return res.json({ message: "Client d'accès par lien supprimé" });
+  } catch (err) {
+    logger.error("Erreur deleteLinkClient", { err: err.message });
+    return res.status(404).json({ error: "Client introuvable ou déjà supprimé" });
+  }
+}
+
 async function sendLinkToClient(req, res) {
   try {
     const { link } = req.body;
@@ -3167,7 +3387,9 @@ module.exports = {
   createOrder,
   // Admin — commandes
   getAllOrders,
+  deleteOrder,
   getAdminDashboard,
+  updateCategoryOrder,
   setOrderExpiry,
   // Non appelée par aucune route HTTP : exportée uniquement pour être
   // exercée directement par le script de vérification de la tâche 4, seul
@@ -3213,6 +3435,7 @@ module.exports = {
   // Admin — link access
   getLinkClients,
   addLinkClient,
+  deleteLinkClient,
   sendLinkToClient,
   // Interne
   assignSubscriptionAfterPayment,

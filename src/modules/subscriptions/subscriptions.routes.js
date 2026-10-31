@@ -5,7 +5,9 @@ const {
   getServiceBySlug,
   createOrder,
   getAllOrders,
+  deleteOrder,
   getAdminDashboard,
+  updateCategoryOrder,
   createService,
   updateService,
   deleteService,
@@ -21,6 +23,7 @@ const {
   deletePoolLink,
   getLinkClients,
   addLinkClient,
+  deleteLinkClient,
   sendLinkToClient,
   setOrderExpiry,
   setFamilyAccountClient,
@@ -49,7 +52,9 @@ const { strictLimiter } = require("../../middleware/rateLimiter");
 // ── Admin — AVANT les routes publiques pour éviter le conflit /:slug ──────────
 router.get("/admin/dashboard", isAdmin, getAdminDashboard);
 router.get("/admin/orders", isAdmin, getAllOrders);
+router.delete("/admin/orders/:id", isAdmin, deleteOrder);
 router.patch("/admin/orders/:id/expiry", isAdmin, setOrderExpiry);
+router.patch("/admin/category-order", isAdmin, updateCategoryOrder);
 
 // Services
 router.post("/admin/services", isAdmin, createService);
@@ -96,6 +101,7 @@ router.get("/admin/demandes", isAdmin, listerDemandes);
 // Link access
 router.get("/admin/plans/:planId/link-clients", isAdmin, getLinkClients);
 router.post("/admin/plans/:planId/link-clients", isAdmin, addLinkClient);
+router.delete("/admin/link-clients/:id", isAdmin, deleteLinkClient);
 router.post("/admin/link-clients/:id/send", isAdmin, sendLinkToClient);
 
 // Réserve de liens (calque des routes accounts pour les formules famille)
