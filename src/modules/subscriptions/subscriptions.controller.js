@@ -40,7 +40,8 @@ async function getServices(req, res) {
       }),
       prisma.setting.findUnique({ where: { key: "subscriptionCategoryOrder" } }),
     ]);
-    return res.json({ services, categoryOrder: lireOrdreCategories(ordreEnregistre?.value) });
+    const serviceOrder = await lireOrdreServices();
+    return res.json({ services: trierServices(services, serviceOrder), serviceOrder, categoryOrder: lireOrdreCategories(ordreEnregistre?.value) });
   } catch (err) {
     logger.error("Erreur getServices", { err: err.message });
     return res.status(500).json({ error: "Erreur serveur" });
@@ -48,6 +49,27 @@ async function getServices(req, res) {
 }
 
 const ORDRE_CATEGORIES_PAR_DEFAUT = ["family", "link_access"];
+async function lireOrdreServices() {
+  const row = await prisma.setting.findUnique({ where: { key: "subscriptionServiceOrder" } });
+  try { const value = JSON.parse(row?.value || "null"); return Array.isArray(value) ? value : []; }
+  catch { return []; }
+}
+function trierServices(services, ordre) {
+  const index = new Map((ordre || []).map((id, i) => [id, i]));
+  return [...services].sort((a, b) => (index.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (index.get(b.id) ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name));
+}
+async function updateServiceOrder(req, res) {
+  const { serviceOrder } = req.body || {};
+  if (!Array.isArray(serviceOrder) || serviceOrder.some((id) => typeof id !== "string") || new Set(serviceOrder).size !== serviceOrder.length) return res.status(400).json({ error: "Ordre des abonnements invalide" });
+  try {
+    const rows = await prisma.subscriptionService.findMany({ select: { id: true } });
+    const ids = new Set(rows.map((row) => row.id));
+    if (serviceOrder.some((id) => !ids.has(id))) return res.status(400).json({ error: "Abonnement invalide dans l’ordre" });
+    const value = JSON.stringify(serviceOrder);
+    await prisma.setting.upsert({ where: { key: "subscriptionServiceOrder" }, create: { key: "subscriptionServiceOrder", value }, update: { value } });
+    return res.json({ serviceOrder });
+  } catch (err) { logger.error("Erreur updateServiceOrder", { err: err.message }); return res.status(500).json({ error: "Enregistrement de l’ordre impossible" }); }
+}
 function lireOrdreCategories(value) {
   try {
     const ordre = JSON.parse(value);
@@ -967,7 +989,8 @@ async function getAdminDashboard(req, res) {
     );
 
     // Décrypte les mots de passe pour l'affichage admin
-    const servicesWithDecrypted = services.map((svc) => ({
+    const serviceOrder = await lireOrdreServices();
+    const servicesWithDecrypted = trierServices(services, serviceOrder).map((svc) => ({
       ...svc,
       plans: svc.plans.map((plan) => ({
         ...plan,
@@ -1006,6 +1029,7 @@ async function getAdminDashboard(req, res) {
 
     return res.json({
       services: servicesWithDecrypted,
+      serviceOrder,
       categoryOrder: lireOrdreCategories(
         (await prisma.setting.findUnique({
           where: { key: "subscriptionCategoryOrder" },
@@ -2968,6 +2992,20 @@ async function addPoolLink(req, res) {
   }
 }
 
+async function updatePoolLink(req, res) {
+  const brut = req.body?.link;
+  if (!lienValide(brut)) return res.status(400).json({ error: "Lien invalide — attendu une adresse http ou https" });
+  try {
+    const link = await prisma.linkAccessLink.update({ where: { id: req.params.id }, data: { link: String(brut).trim() } });
+    return res.json({ link });
+  } catch (err) {
+    if (err.code === "P2002") return res.status(400).json({ error: "Ce lien figure déjà dans la réserve de cette formule" });
+    if (err.code === "P2025") return res.status(404).json({ error: "Lien introuvable" });
+    logger.error("Erreur updatePoolLink", { err: err.message });
+    return res.status(400).json({ error: "Modification impossible" });
+  }
+}
+
 async function deletePoolLink(req, res) {
   try {
     // Comme pour `claimLinkAccessLink`, la garde `status: "disponible"` doit
@@ -3390,6 +3428,7 @@ module.exports = {
   deleteOrder,
   getAdminDashboard,
   updateCategoryOrder,
+  updateServiceOrder,
   setOrderExpiry,
   // Non appelée par aucune route HTTP : exportée uniquement pour être
   // exercée directement par le script de vérification de la tâche 4, seul
@@ -3431,6 +3470,7 @@ module.exports = {
   // Admin — réserve de liens
   getPoolLinks,
   addPoolLink,
+  updatePoolLink,
   deletePoolLink,
   // Admin — link access
   getLinkClients,
