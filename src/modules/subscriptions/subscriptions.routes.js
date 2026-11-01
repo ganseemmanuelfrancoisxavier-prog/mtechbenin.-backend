@@ -8,6 +8,7 @@ const {
   deleteOrder,
   getAdminDashboard,
   updateCategoryOrder,
+  updateServiceOrder,
   createService,
   updateService,
   deleteService,
@@ -20,6 +21,7 @@ const {
   deleteFamilyAccount,
   getPoolLinks,
   addPoolLink,
+  updatePoolLink,
   deletePoolLink,
   getLinkClients,
   addLinkClient,
@@ -55,6 +57,7 @@ router.get("/admin/orders", isAdmin, getAllOrders);
 router.delete("/admin/orders/:id", isAdmin, deleteOrder);
 router.patch("/admin/orders/:id/expiry", isAdmin, setOrderExpiry);
 router.patch("/admin/category-order", isAdmin, updateCategoryOrder);
+router.patch("/admin/service-order", isAdmin, updateServiceOrder);
 
 // Services
 router.post("/admin/services", isAdmin, createService);
@@ -107,6 +110,7 @@ router.post("/admin/link-clients/:id/send", isAdmin, sendLinkToClient);
 // Réserve de liens (calque des routes accounts pour les formules famille)
 router.get("/admin/plans/:planId/pool-links", isAdmin, getPoolLinks);
 router.post("/admin/plans/:planId/pool-links", isAdmin, addPoolLink);
+router.patch("/admin/pool-links/:id", isAdmin, updatePoolLink);
 router.delete("/admin/pool-links/:id", isAdmin, deletePoolLink);
 
 // ── Public — APRÈS les routes admin ──────────────────────────────────────────
