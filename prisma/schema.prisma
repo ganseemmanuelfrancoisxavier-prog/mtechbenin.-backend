@@ -563,6 +563,7 @@ model RepairModel {
   familyId  String
   name      String
   slug      String       @unique
+  image     String?
   sortOrder Int          @default(0)
   active    Boolean      @default(true)
   createdAt DateTime     @default(now())

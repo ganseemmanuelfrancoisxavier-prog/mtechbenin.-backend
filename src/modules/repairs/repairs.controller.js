@@ -46,7 +46,7 @@ async function getModelesDeFamille(req, res) {
     const modeles = await prisma.repairModel.findMany({
       where: { familyId: famille.id, active: true },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, name: true, slug: true },
+      select: { id: true, name: true, slug: true, image: true },
     });
     return res.json({ famille, modeles });
   } catch (err) {
@@ -89,7 +89,7 @@ async function getModele(req, res) {
       .map((j) => ({ id: j.id, name: j.name, delay: j.delay, options: j.options }));
 
     return res.json({
-      modele: { id: modele.id, name: modele.name, slug: modele.slug },
+      modele: { id: modele.id, name: modele.name, slug: modele.slug, image: modele.image },
       famille: modele.family,
       reparations,
     });
@@ -540,6 +540,7 @@ async function modifierFamille(req, res) {
     const data = {};
     if (req.body.name !== undefined) data.name = String(req.body.name).trim();
     if (req.body.sortOrder !== undefined) data.sortOrder = Number(req.body.sortOrder) || 0;
+    if (req.body.image !== undefined) data.image = typeof req.body.image === "string" && req.body.image.trim() ? req.body.image.trim() : null;
     if (req.body.active !== undefined) data.active = !!req.body.active;
     const famille = await prisma.repairFamily.update({ where: { id: req.params.id }, data });
     return res.json({ famille });
@@ -564,7 +565,7 @@ async function supprimerFamille(req, res) {
 
 async function creerModele(req, res) {
   try {
-    const { familyId, name, sortOrder } = req.body || {};
+    const { familyId, name, sortOrder, image } = req.body || {};
     if (!String(familyId || "").trim()) {
       return res.status(400).json({ error: "Famille requise" });
     }
@@ -583,6 +584,7 @@ async function creerModele(req, res) {
         name: String(name).trim(),
         slug: await slugLibre(prisma.repairModel, name),
         sortOrder: Number(sortOrder) || 0,
+        image: typeof image === "string" && image.trim() ? image.trim() : null,
       },
     });
     return res.status(201).json({ modele });
