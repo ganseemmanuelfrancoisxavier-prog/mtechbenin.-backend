@@ -6,18 +6,19 @@ export function OrderConfirmEmail({ order }) {
   const frontendUrl = process.env.FRONTEND_URL || 'https://mtechbenin.com';
 
   return (
-    <Layout preview={`Commande ${order.reference} confirmée — paiement reçu ✅`}>
-      <Text style={h1}>Commande confirmée ✅</Text>
+    <Layout preview={`Commande ${order.reference} confirmée — paiement reçu`}>
+      <Text style={h1}>Commande confirmée !</Text>
       <Text style={p}>
         Bonjour <strong>{order.guestName}</strong>,
       </Text>
       <Text style={p}>
         Votre commande <strong>{order.reference}</strong> a été confirmée et le paiement validé avec succès.
       </Text>
+      <Text style={p}>Votre achat est finalisé !</Text>
 
       {order.isGift && order.giftName && (
         <Section style={giftBox}>
-          <Text style={{ ...label, color: '#9A3412' }}>🎁 Cadeau pour {order.giftName}</Text>
+          <Text style={{ ...label, color: '#9A3412' }}>Cadeau pour {order.giftName}</Text>
           <Text style={{ margin: '0', color: '#9A3412', fontSize: '13px' }}>
             Les identifiants seront envoyés directement au destinataire.
           </Text>
@@ -26,7 +27,7 @@ export function OrderConfirmEmail({ order }) {
 
       {hasDelivery ? (
         <Section style={infoBox}>
-          <Text style={label}>📦 Livraison</Text>
+          <Text style={label}>Livraison</Text>
           <Text style={line}>
             <strong>Ville :</strong> {order.city}
             {order.neighborhood ? `, ${order.neighborhood}` : ''}
@@ -39,13 +40,13 @@ export function OrderConfirmEmail({ order }) {
       ) : (
         <Section style={successBox}>
           <Text style={{ margin: '0', color: '#166534' }}>
-            📲 Votre accès numérique sera envoyé très prochainement sur WhatsApp.
+            Votre accès numérique vous sera transmis automatiquement via WhatsApp ou mail.
           </Text>
         </Section>
       )}
 
       <Section style={infoBox}>
-        <Text style={label}>💰 Récapitulatif</Text>
+        <Text style={label}>Récapitulatif</Text>
         {order.discount > 0 && (
           <Text style={{ ...line, color: '#16A34A' }}>
             <strong>Réduction :</strong> -{order.discount.toLocaleString('fr-FR')} FCFA
@@ -60,6 +61,9 @@ export function OrderConfirmEmail({ order }) {
           Total réglé : {order.total.toLocaleString('fr-FR')} FCFA
         </Text>
       </Section>
+
+      <Text style={p}>Nous vous remercions pour votre confiance.</Text>
+      <Text style={p}>L’équipe MTECHBENIN</Text>
 
       <Section style={{ textAlign: 'center', margin: '28px 0' }}>
         <Button href={`${frontendUrl}/suivi/${order.reference}`} style={cta}>
