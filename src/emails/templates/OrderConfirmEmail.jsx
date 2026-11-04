@@ -58,7 +58,7 @@ export function OrderConfirmEmail({ order }) {
           </Text>
         )}
         <Text style={{ margin: '8px 0 0', fontSize: '18px', fontWeight: '700', color: '#1D1D1F' }}>
-          Total réglé : {order.total.toLocaleString('fr-FR')} FCFA
+          Montant total réglé : {order.total.toLocaleString('fr-FR')} FCFA
         </Text>
       </Section>
 
