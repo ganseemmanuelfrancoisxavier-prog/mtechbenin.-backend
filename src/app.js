@@ -447,13 +447,13 @@ async function startServer() {
   try {
     await prisma.category.upsert({
       where: { slug: "sextoys" },
-      update: { sortOrder: 999 },
+      update: { sortOrder: 6 },
       create: {
         name: "Sextoys",
         label: "Sextoys",
         slug: "sextoys",
         icon: "🌸",
-        sortOrder: 999,
+        sortOrder: 6,
         active: true,
       },
     });
