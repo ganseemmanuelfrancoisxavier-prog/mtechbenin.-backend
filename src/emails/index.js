@@ -129,19 +129,19 @@ function renderOrderConfirm({ order }) {
 
   const giftSection = order.isGift && order.giftName ? `
     <div style="background:#FFF7ED;padding:16px;border-radius:12px;margin:16px 0;border-left:4px solid #F97316;">
-      <p style="margin:0 0 4px;font-weight:600;color:#9A3412;">🎁 Cadeau pour ${esc(order.giftName)}</p>
+      <p style="margin:0 0 4px;font-weight:600;color:#9A3412;">Cadeau pour ${esc(order.giftName)}</p>
       <p style="margin:0;color:#9A3412;font-size:13px;">Les identifiants seront envoyés directement au destinataire.</p>
     </div>` : '';
 
   const deliverySection = hasDelivery ? `
     <div style="background:#F5F5F7;padding:16px;border-radius:12px;margin:16px 0;">
-      <p style="margin:0 0 8px;font-weight:600;color:#1D1D1F;font-size:14px;">📦 Livraison</p>
+      <p style="margin:0 0 8px;font-weight:600;color:#1D1D1F;font-size:14px;">Livraison</p>
       <p style="margin:4px 0;font-size:14px;color:#3D3D3F;"><strong>Ville :</strong> ${esc(order.city)}${order.neighborhood ? `, ${esc(order.neighborhood)}` : ''}</p>
       <p style="margin:4px 0;font-size:14px;color:#3D3D3F;"><strong>Créneau :</strong> ${esc(order.deliverySlot || '—')}</p>
       ${order.instructions ? `<p style="margin:4px 0;font-size:14px;color:#3D3D3F;"><strong>Instructions :</strong> ${esc(order.instructions)}</p>` : ''}
     </div>` : `
     <div style="background:#F0FDF4;padding:16px;border-radius:12px;margin:16px 0;border-left:4px solid #22C55E;">
-      <p style="margin:0;color:#166534;">📲 Votre accès numérique sera envoyé très prochainement sur WhatsApp.</p>
+      <p style="margin:0;color:#166534;">Votre accès numérique vous sera transmis automatiquement via WhatsApp ou mail.</p>
     </div>`;
 
   const discountLine = order.discount > 0
@@ -150,13 +150,14 @@ function renderOrderConfirm({ order }) {
     ? `<p style="margin:4px 0;font-size:14px;color:#3D3D3F;"><strong>Frais de livraison :</strong> ${fmt(order.deliveryFee)} FCFA</p>` : '';
 
   const body = `
-    <p style="font-size:24px;font-weight:700;color:#1D1D1F;margin:0 0 12px;">Commande confirmée ✅</p>
+    <p style="font-size:24px;font-weight:700;color:#1D1D1F;margin:0 0 12px;">Commande confirmée !</p>
     <p style="font-size:15px;color:#3D3D3F;margin:6px 0;">Bonjour <strong>${esc(order.guestName)}</strong>,</p>
     <p style="font-size:15px;color:#3D3D3F;margin:6px 0;">Votre commande <strong>${esc(order.reference)}</strong> a été confirmée et le paiement validé avec succès.</p>
+    <p style="font-size:15px;color:#3D3D3F;margin:6px 0;">Votre achat est finalisé !</p>
     ${giftSection}
     ${deliverySection}
     <div style="background:#F5F5F7;padding:16px;border-radius:12px;margin:16px 0;">
-      <p style="margin:0 0 8px;font-weight:600;color:#1D1D1F;font-size:14px;">💰 Récapitulatif</p>
+      <p style="margin:0 0 8px;font-weight:600;color:#1D1D1F;font-size:14px;">Récapitulatif</p>
       ${discountLine}
       ${deliveryFeeLine}
       <p style="margin:8px 0 0;font-size:18px;font-weight:700;color:#1D1D1F;">Total réglé : ${fmt(order.total)} FCFA</p>
@@ -166,9 +167,11 @@ function renderOrderConfirm({ order }) {
          style="background:#1D1D1F;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;display:inline-block;">
         Suivre ma commande →
       </a>
-    </div>`;
+    </div>
+    <p style="font-size:15px;color:#3D3D3F;margin:18px 0 4px;">Nous vous remercions pour votre confiance.</p>
+    <p style="font-size:15px;color:#3D3D3F;margin:4px 0;">L’équipe MTECHBENIN</p>`;
 
-  return layout(`Commande ${order.reference} confirmée — paiement reçu ✅`, body);
+  return layout(`Commande ${order.reference} confirmée — paiement reçu`, body);
 }
 
 // ─── Notification admin nouvelle commande ────────────────────────────────────
