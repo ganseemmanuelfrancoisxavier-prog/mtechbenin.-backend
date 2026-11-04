@@ -160,7 +160,7 @@ function renderOrderConfirm({ order }) {
       <p style="margin:0 0 8px;font-weight:600;color:#1D1D1F;font-size:14px;">Récapitulatif</p>
       ${discountLine}
       ${deliveryFeeLine}
-      <p style="margin:8px 0 0;font-size:18px;font-weight:700;color:#1D1D1F;">Total réglé : ${fmt(order.total)} FCFA</p>
+      <p style="margin:8px 0 0;font-size:18px;font-weight:700;color:#1D1D1F;">Montant total réglé : ${fmt(order.total)} FCFA</p>
     </div>
     <div style="text-align:center;margin:28px 0;">
       <a href="${esc(frontendUrl)}/suivi/${esc(order.reference)}"
