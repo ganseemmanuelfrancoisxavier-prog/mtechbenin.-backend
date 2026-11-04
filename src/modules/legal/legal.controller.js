@@ -82,7 +82,7 @@ async function getAllLegalPages(req, res) {
     const pages = LEGAL_PAGES.map((def) => ({
       slug: def.slug,
       title: savedBySlug[def.slug]?.title || def.title,
-      content: savedBySlug[def.slug]?.content || def.defaultContent,
+      content: savedBySlug[def.slug]?.content ?? def.defaultContent,
       updatedAt: savedBySlug[def.slug]?.updatedAt || null,
       id: savedBySlug[def.slug]?.id || null,
     }));
