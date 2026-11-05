@@ -445,6 +445,22 @@ async function startServer() {
   appliquerMigrations();
 
   try {
+    // Répare les catégories de base manquantes sans écraser leurs réglages
+    // (nom, ordre, activation) lorsqu'elles existent déjà.
+    const categoriesDeBase = [
+      { slug: "ecouteurs", name: "Écouteurs", label: "Écouteurs", icon: "🎧", sortOrder: 4 },
+      { slug: "enceintes", name: "Enceintes", label: "Enceintes", icon: "🔊", sortOrder: 5 },
+      { slug: "for-woman", name: "For Woman", label: "For Woman", icon: "💄", sortOrder: 7 },
+      { slug: "accessoires", name: "Accessoires", label: "Accessoires", icon: "📦", sortOrder: 8 },
+    ];
+    for (const category of categoriesDeBase) {
+      await prisma.category.upsert({
+        where: { slug: category.slug },
+        update: {},
+        create: { ...category, active: true },
+      });
+    }
+
     await prisma.category.upsert({
       where: { slug: "sextoys" },
       update: { sortOrder: 6 },
@@ -457,7 +473,7 @@ async function startServer() {
         active: true,
       },
     });
-    logger.info("Catégorie Sextoys vérifiée dans le catalogue");
+    logger.info("Catégories de base vérifiées dans le catalogue");
   } catch (err) {
     logger.error("Erreur création catégorie Sextoys", { err: err.message });
   }
