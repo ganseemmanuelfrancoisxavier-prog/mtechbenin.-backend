@@ -4,10 +4,10 @@ const logger = require("../../utils/logger");
 async function getCategories(req, res) {
   try {
     const { includeInactive } = req.query;
+    const isAdminList = req.path === "/all";
 
-    // Si includeInactive=true (panel admin) → toutes les catégories
-    // Sinon → uniquement les actives (site public)
-    const where = includeInactive === "true" ? {} : { active: true };
+    // La route /all sert au panel et doit inclure les catégories désactivées.
+    const where = includeInactive === "true" || isAdminList ? {} : { active: true };
 
     const categories = await prisma.category.findMany({
       where,
