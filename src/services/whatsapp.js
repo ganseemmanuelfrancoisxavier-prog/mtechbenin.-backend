@@ -75,6 +75,42 @@ async function sendMessage(phone, message, messageOptions = {}) {
   return sendMessageToJid(`${cleanPhone}@s.whatsapp.net`, message, messageOptions);
 }
 
+/** Envoie la photo et sa légende (lien inclus) dans un unique message WhatsApp. */
+async function sendPhotoWithCaption(phone, imageUrl, caption) {
+  let parsed;
+  try { parsed = new URL(String(imageUrl || "")); } catch { return false; }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== "res.cloudinary.com" ||
+    !parsed.pathname.includes("/image/upload/")
+  ) {
+    logger.warn("Photo WhatsApp refusée — URL Cloudinary invalide");
+    return false;
+  }
+
+  const cleanPhone = String(phone ?? "").replace(/\D/g, "");
+  if (!cleanPhone) return false;
+  const jid = `${cleanPhone}@s.whatsapp.net`;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const sock = getClient();
+      if (!sock || !isConnected()) return false;
+      await sock.sendMessage(jid, { image: { url: parsed.toString() }, caption });
+      logger.info(`✅ WhatsApp avec photo envoyé à ${jid}`);
+      return true;
+    } catch (err) {
+      if (attempt === 1) {
+        logger.warn("Envoi WhatsApp avec photo échoué — nouvel essai", { jid, err: err.message });
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      } else {
+        logger.error("Envoi WhatsApp avec photo définitivement échoué", { jid, err: err.message });
+      }
+    }
+  }
+  return false;
+}
+
 // ── Nouvelle commande → ADMIN ─────────────────────────────────────────────────
 async function sendNewOrderToAdmin(order) {
   const vendorPhone = process.env.VENDOR_WHATSAPP_NUMBER;
@@ -295,8 +331,8 @@ async function sendSubscriptionNotifToAdmin({
 
 // ── Lien d'accès → CLIENT ─────────────────────────────────────────────────────
 async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link }) {
-  if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
-    const imageUrl = "https://www.mtechbenin.com/images/categories/abonnements.jpg";
+async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link, imageUrl = null }) {
+if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
     let appleLink = link;
     let linkPreview = null;
 
@@ -317,19 +353,22 @@ async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link })
       ).replace(/\/+$/, "");
       appleLink = `${baseUrl}/apple-music/${token}`;
 
-      const response = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
-      if (!response.ok) throw new Error(`Image aperçu indisponible (${response.status})`);
-      const thumbnail = Buffer.from(await response.arrayBuffer());
-      if (thumbnail.length > 200_000) throw new Error("Image aperçu trop volumineuse");
+      if (!imageUrl) {
+        const previewImageUrl = "https://mtechbenin.com/apple-music-preview.jpg";
+        const response = await fetch(previewImageUrl, { signal: AbortSignal.timeout(8000) });
+        if (!response.ok) throw new Error(`Image aperçu indisponible (${response.status})`);
+        const thumbnail = Buffer.from(await response.arrayBuffer());
+        if (thumbnail.length > 200_000) throw new Error("Image aperçu trop volumineuse");
 
-      linkPreview = {
-        "canonical-url": appleLink,
-        "matched-text": appleLink,
-        title: "Apple Music — votre accès est prêt",
-        description: "Touchez l’aperçu pour ouvrir votre invitation Apple Music.",
-        jpegThumbnail: thumbnail,
-        originalThumbnailUrl: imageUrl,
-      };
+        linkPreview = {
+          "canonical-url": appleLink,
+          "matched-text": appleLink,
+          title: "Apple Music — votre accès est prêt",
+          description: "Touchez l’aperçu pour ouvrir votre invitation Apple Music.",
+          jpegThumbnail: thumbnail,
+          originalThumbnailUrl: previewImageUrl,
+        };
+      }
     } catch (err) {
       logger.warn("Aperçu Apple Music indisponible — envoi du lien direct", {
         err: err.message,
@@ -337,29 +376,25 @@ async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link })
       appleLink = link;
     }
 
-    const message = assembler([
-      appleLink,
-      `🎵 ${gras("Votre accès Apple Music est prêt")}`,
-      `Touchez l'aperçu du lien ci-dessus pour ouvrir Apple Music.`,
-      `Lien personnel — ne le partagez pas.`,
+    const caption = assembler([
+      gras("Votre accès Apple Music est prêt"),
+      "Touchez l'aperçu ci-dessus pour y accéder.",
+      imageUrl ? appleLink : null,
       ``,
-      SIGNATURE,
+      gras("L'équipe MTECHBENIN"),
     ]);
-    return sendMessage(clientWhatsapp, message, linkPreview ? { linkPreview } : {});
+    if (imageUrl) return sendPhotoWithCaption(clientWhatsapp, imageUrl, caption);
+    return sendMessage(clientWhatsapp, assembler([appleLink, caption]), linkPreview ? { linkPreview } : {});
   }
 
   const message = assembler([
-    ENTETE,
-    ``,
-    gras(`Votre accès ${serviceName} :`),
-    // En clair : une URL en gras se lit mal et se recopie mal.
-    `${link}`,
-    ``,
-    gras(`Lien personnel — ne le partagez pas.`),
+    gras(`Votre accès ${serviceName} est prêt`),
+    `Lien : ${link}`,
     ``,
     SIGNATURE,
   ]);
 
+  if (imageUrl) return sendPhotoWithCaption(clientWhatsapp, imageUrl, message);
   return sendMessage(clientWhatsapp, message);
 }
 
