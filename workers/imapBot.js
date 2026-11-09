@@ -896,6 +896,7 @@ async function processEmail(parsed, mailboxEmail, { testOnly = false } = {}) {
     if (destinataire.whatsapp) {
       waSent = await whatsapp.sendOTPToClient({
         clientWhatsapp: destinataire.whatsapp,
+        clientJid: decision.demandeurJid || null,
         clientName: destinataire.nom,
         serviceName: svcName,
         otpCode: otp,
@@ -908,7 +909,7 @@ async function processEmail(parsed, mailboxEmail, { testOnly = false } = {}) {
     // et un code de foyer est à usage unique — l'envoyer aussi à l'acheteur
     // donnerait à deux personnes un code dont un seul peut se servir.
     if (
-      envoyerCopieCadeau({
+      !decision.demandeurJid && envoyerCopieCadeau({
         occupation: decision.occupation,
         isGift: commandeCible.isGift,
         giftWhatsapp: commandeCible.giftWhatsapp,
