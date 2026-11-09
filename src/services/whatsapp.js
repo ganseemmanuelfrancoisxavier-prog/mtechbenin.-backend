@@ -1,4 +1,6 @@
 const logger = require("../utils/logger");
+const { randomBytes } = require("crypto");
+const redis = require("./redis");
 const { buildGoogleMapsLink } = require("../utils/maps");
 const { getClient, isConnected } = require("./whatsappClient");
 const { memeNumero } = require("../modules/subscriptions/demandeCode");
@@ -24,7 +26,7 @@ const HEADER = ENTETE;
 // à partir de ses chiffres donnerait `<chiffres du LID>@s.whatsapp.net` — une
 // adresse qui n'existe pas, vers laquelle le message part sans jamais arriver
 // et sans que rien ne le signale.
-async function sendMessageToJid(jid, message) {
+async function sendMessageToJid(jid, message, messageOptions = {}) {
   if (!jid || typeof jid !== "string" || !jid.includes("@")) {
     logger.warn("JID invalide — message ignoré", { jid });
     return false;
@@ -38,7 +40,7 @@ async function sendMessageToJid(jid, message) {
         return false;
       }
 
-      await sock.sendMessage(jid, { text: message });
+      await sock.sendMessage(jid, { text: message, ...messageOptions });
       logger.info(`✅ WhatsApp envoyé à ${jid}`);
       return true;
     } catch (err) {
@@ -64,13 +66,13 @@ async function sendMessageToJid(jid, message) {
 // Chemin de tous les envois sortants à l'initiative de la boutique, où l'on ne
 // dispose que d'un numéro saisi à la main. Ne PAS l'employer pour répondre à un
 // message entrant : voir `sendMessageToJid`.
-async function sendMessage(phone, message) {
+async function sendMessage(phone, message, messageOptions = {}) {
   const cleanPhone = String(phone ?? "").replace(/\D/g, "");
   if (!cleanPhone) {
     logger.warn("Numéro invalide — message ignoré", { phone });
     return false;
   }
-  return sendMessageToJid(`${cleanPhone}@s.whatsapp.net`, message);
+  return sendMessageToJid(`${cleanPhone}@s.whatsapp.net`, message, messageOptions);
 }
 
 // ── Nouvelle commande → ADMIN ─────────────────────────────────────────────────
@@ -293,19 +295,57 @@ async function sendSubscriptionNotifToAdmin({
 
 // ── Lien d'accès → CLIENT ─────────────────────────────────────────────────────
 async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link }) {
-  // Baileys extrait la première URL du texte et récupère sa vignette OpenGraph.
-  // La placer en tête du message permet à WhatsApp d'afficher l'aperçu Apple
-  // Music cliquable avant le texte, au lieu d'un long lien noyé dans le message.
-  if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
+  if (/apple[\\s-]*music/i.test(String(serviceName || ""))) {
+    const imageUrl = "https://www.mtechbenin.com/images/categories/abonnements.jpg";
+    let appleLink = link;
+    let linkPreview = null;
+
+    try {
+      const parsed = new URL(link);
+      if (
+        parsed.protocol !== "https:" ||
+        parsed.hostname !== "setup.icloud.com" ||
+        parsed.pathname !== "/family/messages"
+      ) {
+        throw new Error("Lien Apple Music inattendu");
+      }
+
+      const token = randomBytes(10).toString("base64url");
+      await redis.set(`apple-invite:${token}`, link, { ex: 60 * 60 * 24 * 365 });
+      const baseUrl = String(
+        process.env.RENDER_EXTERNAL_URL || "https://mtechbenin-backend-xp3i.onrender.com",
+      ).replace(/\\/+$/, "");
+      appleLink = `${baseUrl}/apple-music/${token}`;
+
+      const response = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) throw new Error(`Image aperçu indisponible (${response.status})`);
+      const thumbnail = Buffer.from(await response.arrayBuffer());
+      if (thumbnail.length > 200_000) throw new Error("Image aperçu trop volumineuse");
+
+      linkPreview = {
+        "canonical-url": appleLink,
+        "matched-text": appleLink,
+        title: "Apple Music — votre accès est prêt",
+        description: "Touchez l’aperçu pour ouvrir votre invitation Apple Music.",
+        jpegThumbnail: thumbnail,
+        originalThumbnailUrl: imageUrl,
+      };
+    } catch (err) {
+      logger.warn("Aperçu Apple Music indisponible — envoi du lien direct", {
+        err: err.message,
+      });
+      appleLink = link;
+    }
+
     const message = assembler([
-      `${link}`,
+      appleLink,
       `🎵 ${gras("Votre accès Apple Music est prêt")}`,
       `Touchez l'aperçu du lien ci-dessus pour ouvrir Apple Music.`,
       `Lien personnel — ne le partagez pas.`,
       ``,
       SIGNATURE,
     ]);
-    return sendMessage(clientWhatsapp, message);
+    return sendMessage(clientWhatsapp, message, linkPreview ? { linkPreview } : {});
   }
 
   const message = assembler([
