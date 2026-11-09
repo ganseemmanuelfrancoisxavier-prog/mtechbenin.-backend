@@ -3091,7 +3091,7 @@ async function deleteLinkClient(req, res) {
 
 async function sendLinkToClient(req, res) {
   try {
-    const { link } = req.body;
+    const { link, imageUrl = null } = req.body;
     if (!link) return res.status(400).json({ error: "Lien requis" });
 
     const client = await prisma.linkAccessClient.findUnique({
@@ -3099,6 +3099,22 @@ async function sendLinkToClient(req, res) {
       include: { plan: { include: { service: true } } },
     });
     if (!client) return res.status(404).json({ error: "Client introuvable" });
+
+    if (imageUrl) {
+      let photo;
+      try { photo = new URL(String(imageUrl)); } catch { photo = null; }
+      if (
+        !photo ||
+        photo.protocol !== "https:" ||
+        photo.hostname !== "res.cloudinary.com" ||
+        !photo.pathname.includes("/image/upload/")
+      ) {
+        return res.status(400).json({ error: "Image invalide — choisissez une image importée dans le panneau." });
+      }
+      if (!client.whatsapp) {
+        return res.status(400).json({ error: "Une photo ne peut être envoyée que sur WhatsApp." });
+      }
+    }
 
     // ── Ce lien appartient-il bien a la formule de ce client ? ──────────────
     //
@@ -3137,10 +3153,11 @@ async function sendLinkToClient(req, res) {
         clientName: client.name,
         serviceName: client.plan.service.name,
         link,
+        imageUrl,
       })
       .catch(() => false);
 
-    const emailOk = client.email
+    const emailOk = client.email && !imageUrl
       ? await emailSvc
           .sendLinkAccess({
             clientEmail: client.email,
