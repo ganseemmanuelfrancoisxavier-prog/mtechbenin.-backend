@@ -1,7 +1,6 @@
 // Répare uniquement les occupations encore représentées par l'ancien champ
-// FamilyAccount.currentOrderId. Contrairement à la migration historique, ce
-// rattrapage ne crée pas de comptes et ne déplace jamais un profil déjà lié.
-// Il s'exécute au démarrage après les migrations de schéma.
+// FamilyAccount.currentOrderId. Ce rattrapage ne crée pas de comptes et ne
+// déplace jamais un profil déjà lié.
 const prisma = require("../src/services/prisma");
 const logger = require("../src/utils/logger");
 
@@ -19,9 +18,15 @@ async function main() {
     },
   });
 
-  let creees = 0;
-  let rattaches = 0;
-  let ignorees = 0;
+  const stats = {
+    examinees: profils.length,
+    creees: 0,
+    rattaches: 0,
+    ignorees: {},
+  };
+  const ignorer = (raison) => {
+    stats.ignorees[raison] = (stats.ignorees[raison] || 0) + 1;
+  };
 
   for (const profil of profils) {
     const commande = await prisma.subscriptionOrder.findUnique({
@@ -29,35 +34,37 @@ async function main() {
       include: { plan: { select: { aVie: true } } },
     });
 
-    // La fiche historique doit pointer vers un achat confirmé, sur le même
-    // service et la même formule. Une formule sans échéance est active à vie;
-    // pour les autres, seule une date d'expiration future peut être restaurée.
-    if (
-      !commande ||
-      commande.status !== "CONFIRMED" ||
-      !profil.plan?.serviceId ||
-      profil.plan.serviceId !== commande.serviceId ||
-      profil.planId !== commande.planId ||
-      (!commande.plan?.aVie && (!commande.expiresAt || commande.expiresAt <= maintenant))
-    ) {
-      ignorees += 1;
+    if (!commande) {
+      ignorer("commande_introuvable");
+      continue;
+    }
+    if (commande.status !== "CONFIRMED") {
+      ignorer("commande_non_confirmee");
+      continue;
+    }
+    if (!profil.plan?.serviceId || profil.plan.serviceId !== commande.serviceId) {
+      ignorer("service_different");
+      continue;
+    }
+    if (profil.planId !== commande.planId) {
+      ignorer("formule_differente");
+      continue;
+    }
+    if (!commande.plan?.aVie && (!commande.expiresAt || commande.expiresAt <= maintenant)) {
+      ignorer("abonnement_expire_ou_sans_echeance");
       continue;
     }
 
     let compte = profil.account;
     if (compte) {
-      // Un profil déjà lié à un autre compte n'est jamais déplacé par ce
-      // rattrapage. Son adresse doit aussi désigner le compte qui l'alimente.
       if (
         compte.serviceId !== commande.serviceId ||
         normaliserEmail(compte.email) !== normaliserEmail(profil.email)
       ) {
-        ignorees += 1;
+        ignorer("compte_existant_incoherent");
         continue;
       }
     } else {
-      // Pour les anciennes fiches non encore migrées, ne rattacher que si une
-      // adresse correspond à un seul compte existant du service.
       const comptes = await prisma.streamingAccount.findMany({
         where: { serviceId: commande.serviceId },
         select: { id: true, email: true, serviceId: true },
@@ -65,8 +72,12 @@ async function main() {
       const correspondants = comptes.filter(
         (c) => normaliserEmail(c.email) === normaliserEmail(profil.email),
       );
+      if (correspondants.length === 0) {
+        ignorer("aucun_compte_email_correspondant");
+        continue;
+      }
       if (correspondants.length !== 1) {
-        ignorees += 1;
+        ignorer("plusieurs_comptes_email_correspondants");
         continue;
       }
       compte = correspondants[0];
@@ -74,7 +85,7 @@ async function main() {
         where: { id: profil.id },
         data: { accountId: compte.id },
       });
-      rattaches += 1;
+      stats.rattaches += 1;
     }
 
     const existante = await prisma.profileOccupancy.findFirst({
@@ -95,21 +106,18 @@ async function main() {
           endsAt: commande.expiresAt,
         },
       });
-      creees += 1;
+      stats.creees += 1;
     } catch (err) {
-      // Un démarrage concurrent peut avoir inséré la même occupation entre
-      // findFirst et create; la contrainte de la base empêche le doublon.
+      ignorer("conflit_creation");
       logger.warn("Reprise d'occupation ignorée", { err: err.message });
     }
   }
 
-  logger.info("Reprise ciblée des occupations terminée", { creees, rattaches, ignorees });
+  logger.info("Reprise ciblée des occupations terminée", stats);
 }
 
 main()
   .catch((err) => {
-    // La reprise ne doit pas empêcher le backend de démarrer. L'erreur reste
-    // visible dans le journal Render pour diagnostic.
     logger.error("Reprise ciblée des occupations échouée", { err: err.message });
   })
   .finally(async () => {
