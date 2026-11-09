@@ -1,6 +1,6 @@
 // Répare uniquement les occupations encore représentées par l'ancien champ
-// FamilyAccount.currentOrderId. Ce rattrapage ne crée pas de comptes et ne
-// déplace jamais un profil déjà lié.
+// FamilyAccount.currentOrderId. Aucun compte n'est créé : un profil est
+// rattaché au compte existant unique dont les identifiants correspondent.
 const prisma = require("../src/services/prisma");
 const logger = require("../src/utils/logger");
 
@@ -31,8 +31,9 @@ async function main() {
 
   const stats = {
     examinees: profils.length,
-    creees: 0,
-    rattaches: 0,
+    occupationsCreees: 0,
+    rattachementsCorriges: 0,
+    demandesRattachees: 0,
     ignorees: {},
   };
   const ignorer = (raison) => {
@@ -66,62 +67,75 @@ async function main() {
       continue;
     }
 
-    let compte = profil.account;
-    if (compte) {
-      if (
-        compte.serviceId !== commande.serviceId ||
-        normaliserEmail(compte.email) !== normaliserEmail(profil.email)
-      ) {
-        ignorer("compte_existant_incoherent");
-        continue;
-      }
-    } else {
-      const comptes = await prisma.streamingAccount.findMany({
-        where: { serviceId: commande.serviceId },
-        select: { id: true, email: true, serviceId: true },
-      });
-      const correspondants = comptes.filter(
-        (c) => normaliserEmail(c.email) === normaliserEmail(profil.email),
-      );
-      if (correspondants.length === 0) {
-        ignorer("aucun_compte_email_correspondant");
-        continue;
-      }
-      if (correspondants.length !== 1) {
-        ignorer("plusieurs_comptes_email_correspondants");
-        continue;
-      }
-      compte = correspondants[0];
-      await prisma.familyAccount.update({
-        where: { id: profil.id },
-        data: { accountId: compte.id },
-      });
-      stats.rattaches += 1;
+    const comptes = await prisma.streamingAccount.findMany({
+      where: { serviceId: commande.serviceId },
+      select: { id: true, email: true, serviceId: true },
+    });
+    const correspondants = comptes.filter(
+      (c) => normaliserEmail(c.email) === normaliserEmail(profil.email),
+    );
+    if (correspondants.length === 0) {
+      ignorer("aucun_compte_email_correspondant");
+      continue;
+    }
+    if (correspondants.length !== 1) {
+      ignorer("plusieurs_comptes_email_correspondants");
+      continue;
     }
 
-    const existante = await prisma.profileOccupancy.findFirst({
-      where: { orderId: commande.id },
-      select: { id: true },
+    const compteCorrect = correspondants[0];
+    if (profil.accountId !== compteCorrect.id) {
+      await prisma.familyAccount.update({
+        where: { id: profil.id },
+        data: { accountId: compteCorrect.id },
+      });
+      stats.rattachementsCorriges += 1;
+    }
+
+    let occupation = await prisma.profileOccupancy.findFirst({
+      where: { orderId: commande.id, releasedAt: null },
+      select: { id: true, profileId: true },
     });
-    if (existante) continue;
+    if (occupation && occupation.profileId !== profil.id) {
+      ignorer("occupation_sur_un_autre_profil");
+      continue;
+    }
 
     const cadeau = Boolean(commande.isGift && commande.giftWhatsapp);
-    try {
-      await prisma.profileOccupancy.create({
+    const donneesOccupation = {
+      occupantName: cadeau ? commande.giftName || commande.clientName : commande.clientName,
+      occupantWhatsapp: cadeau ? commande.giftWhatsapp : commande.clientWhatsapp,
+      startedAt: commande.createdAt,
+      endsAt: commande.expiresAt,
+    };
+
+    if (occupation) {
+      await prisma.profileOccupancy.update({
+        where: { id: occupation.id },
+        data: donneesOccupation,
+      });
+    } else {
+      occupation = await prisma.profileOccupancy.create({
         data: {
           profileId: profil.id,
           orderId: commande.id,
-          occupantName: cadeau ? commande.giftName || commande.clientName : commande.clientName,
-          occupantWhatsapp: cadeau ? commande.giftWhatsapp : commande.clientWhatsapp,
-          startedAt: commande.createdAt,
-          endsAt: commande.expiresAt,
+          ...donneesOccupation,
         },
+        select: { id: true, profileId: true },
       });
-      stats.creees += 1;
-    } catch (err) {
-      ignorer("conflit_creation");
-      logger.warn("Reprise d'occupation ignorée", { err: err.message });
+      stats.occupationsCreees += 1;
     }
+
+    const demandes = await prisma.otpRequest.updateMany({
+      where: {
+        occupancyId: occupation.id,
+        servedAt: null,
+        expiresAt: { gt: maintenant },
+        accountId: { not: compteCorrect.id },
+      },
+      data: { accountId: compteCorrect.id },
+    });
+    stats.demandesRattachees += demandes.count;
   }
 
   logger.info("Reprise ciblée des occupations terminée", stats);
