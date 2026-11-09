@@ -834,19 +834,33 @@ async function processEmail(parsed, mailboxEmail, { testOnly = false } = {}) {
     // retenue par `decideEnvoi` qui désigne la commande, pas celle devinée par
     // `resolveTargetOrder` en amont.
     await withOrderLock(commandeCible.id, async () => {
-    // ── 4. Idempotence — ce code a-t-il déjà été traité pour cette commande ? ─
-    // Évite de re-notifier l'admin si le même email est relu (redémarrage,
-    // poll de rattrapage…).
-    const alreadySeen = await prisma.oTPLog.findFirst({
-      where: { orderId: commandeCible.id, otpCode: otp },
-      select: { id: true },
+    // ── 4. Un code par abonnement ───────────────────────────────────────────
+    // Un abonnement paye ne recoit qu'un seul code automatiquement. Si un
+    // autre code arrive pour cette meme commande, il est reserve a l'admin :
+    // un code de foyer est a usage unique et ne doit pas etre remis a une
+    // seconde personne ni renvoye au meme abonne. Une nouvelle souscription
+    // cree une autre commande et peut donc recevoir son propre premier code.
+    const codeDejaEnvoye = await prisma.oTPLog.findFirst({
+      where: { orderId: commandeCible.id },
+      select: { id: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
     });
-    if (alreadySeen) {
-      logger.info(`OTP ${otp} déjà traité pour la commande ${commandeCible.id} — ignoré`);
+    if (codeDejaEnvoye) {
+      logger.info(`Un OTP a déjà été envoyé pour l'abonnement ${commandeCible.id} — code réservé à l'admin`);
+      await notifyAdmin(
+        [
+          `⚠️ *Nouveau code OTP — aucun nouvel envoi client*`,
+          `Service : ${commandeCible.service?.name || serviceLabel}`,
+          `Boîte : ${mailboxEmail}`,
+          `Code : *${otp}*`,
+          `Abonnement déjà servi le ${new Date(codeDejaEnvoye.createdAt).toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" })}.`,
+          `Un abonnement ne reçoit qu'un seul code automatiquement.`,
+        ].join("\n"),
+        `OTP supplémentaire ${commandeCible.service?.name || serviceLabel}`,
+      );
       await consignerCourriel(ligne, {
-        decision: "ignore",
-        raison: "deja transmis a ce client",
-        destinataire: destinataire.nom,
+        decision: "admin",
+        raison: "abonnement deja servi — code reserve a l'administrateur",
         commandeId: commandeCible.id,
       });
       return;
@@ -854,16 +868,8 @@ async function processEmail(parsed, mailboxEmail, { testOnly = false } = {}) {
 
     // ── 5. Envoi ─────────────────────────────────────────────────────────────
     //
-    // Aucun quota par commande, volontairement. Une regle « un code par
-    // abonnement, a vie » a existe ici a deux reprises : elle suppose qu'un
-    // abonne n'a besoin d'un code qu'une fois. C'est faux — Netflix redemande
-    // une verification de foyer a chaque nouvelle connexion, et un code perdu
-    // (WhatsApp tombe, numero mal saisi) n'a alors plus aucun recours.
-    //
-    // En pratique chaque client recevait son premier code puis restait coupe
-    // pour le reste de sa formule, tous les suivants finissant en
-    // `imap-blocked`. Tant que la commande est payee et valide, son titulaire
-    // recoit ses codes.
+    // Le code est envoyé une fois pour cette commande. Les codes suivants
+    // restent réservés à l'administrateur jusqu'à une nouvelle souscription.
     const svcName = commandeCible.service?.name || serviceLabel;
 
     // `destinataire` a déjà été calculé plus haut (avant le mode test), pour
