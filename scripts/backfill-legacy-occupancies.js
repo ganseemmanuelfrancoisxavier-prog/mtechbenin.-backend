@@ -84,21 +84,21 @@ async function main() {
     }
 
     const compteCorrect = correspondants[0];
-    if (profil.accountId !== compteCorrect.id) {
-      await prisma.familyAccount.update({
-        where: { id: profil.id },
-        data: { accountId: compteCorrect.id },
-      });
-      stats.rattachementsCorriges += 1;
-    }
-
-    let occupation = await prisma.profileOccupancy.findFirst({
+    const occupation = await prisma.profileOccupancy.findFirst({
       where: { orderId: commande.id, releasedAt: null },
       select: { id: true, profileId: true },
     });
     if (occupation && occupation.profileId !== profil.id) {
       ignorer("occupation_sur_un_autre_profil");
       continue;
+    }
+
+    if (profil.accountId !== compteCorrect.id) {
+      await prisma.familyAccount.update({
+        where: { id: profil.id },
+        data: { accountId: compteCorrect.id },
+      });
+      stats.rattachementsCorriges += 1;
     }
 
     const cadeau = Boolean(commande.isGift && commande.giftWhatsapp);
