@@ -354,7 +354,7 @@ if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
       appleLink = `${baseUrl}/apple-music/${token}`;
 
       if (!imageUrl) {
-        const previewImageUrl = "https://mtechbenin.com/apple-music-preview.jpg";
+        const previewImageUrl = "https://www.mtechbenin.com/images/categories/abonnements.jpg";
         const response = await fetch(previewImageUrl, { signal: AbortSignal.timeout(8000) });
         if (!response.ok) throw new Error(`Image aperçu indisponible (${response.status})`);
         const thumbnail = Buffer.from(await response.arrayBuffer());
