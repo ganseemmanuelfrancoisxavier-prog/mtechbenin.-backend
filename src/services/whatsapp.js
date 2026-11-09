@@ -295,7 +295,7 @@ async function sendSubscriptionNotifToAdmin({
 
 // ── Lien d'accès → CLIENT ─────────────────────────────────────────────────────
 async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link }) {
-  if (/apple[\\s-]*music/i.test(String(serviceName || ""))) {
+  if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
     const imageUrl = "https://www.mtechbenin.com/images/categories/abonnements.jpg";
     let appleLink = link;
     let linkPreview = null;
@@ -314,7 +314,7 @@ async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link })
       await redis.set(`apple-invite:${token}`, link, { ex: 60 * 60 * 24 * 365 });
       const baseUrl = String(
         process.env.RENDER_EXTERNAL_URL || "https://mtechbenin-backend-xp3i.onrender.com",
-      ).replace(/\\/+$/, "");
+      ).replace(/\/+$/, "");
       appleLink = `${baseUrl}/apple-music/${token}`;
 
       const response = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
