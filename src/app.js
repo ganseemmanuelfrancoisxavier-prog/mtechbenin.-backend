@@ -413,7 +413,7 @@ app.get("/apple-music/:token", async (req, res) => {
       .replace(/"/g, "&quot;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
-    const previewUrl = `https://mtechbenin-backend-xp3i.onrender.com/apple-music/${token}`;
+    const previewUrl = `https://mtechbenin.com/apple-music/${token}`;
     const imageUrl = "https://www.mtechbenin.com/images/categories/abonnements.jpg";
     res
       .status(200)
