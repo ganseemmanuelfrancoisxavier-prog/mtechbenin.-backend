@@ -5,7 +5,18 @@ const prisma = require("../src/services/prisma");
 const logger = require("../src/utils/logger");
 
 function normaliserEmail(value) {
-  return String(value || "").trim().toLowerCase();
+  const email = String(value || "").trim().toLowerCase();
+  const at = email.lastIndexOf("@");
+  if (at === -1) return email;
+  let local = email.slice(0, at);
+  const domaine = email.slice(at + 1);
+  const plus = local.indexOf("+");
+  if (plus !== -1) local = local.slice(0, plus);
+  if (domaine === "gmail.com" || domaine === "googlemail.com") {
+    local = local.replace(/\\./g, "");
+    return `${local}@gmail.com`;
+  }
+  return `${local}@${domaine}`;
 }
 
 async function main() {
