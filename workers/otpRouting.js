@@ -340,7 +340,13 @@ function decideEnvoi({
   //    rien à signaler.
   const occupationDemandee = demandeOuverte?.occupancy;
   const demandeEncoreValable =
-    occupationDemandee && occupations.some((o) => o.id === occupationDemandee.id);
+    occupationDemandee &&
+    (occupations.some((o) => o.id === occupationDemandee.id) ||
+      // `demandeOuverteDesComptes` ne renvoie que des occupations encore
+      // actives. Pour une demande WhatsApp, l'occupation qui a validé le
+      // numéro de souscription fait foi même si le filtre secondaire sur
+      // l'adresse email du profil l'a écartée des candidats du compte.
+      demandeOuverte.canal === "whatsapp");
 
   if (demandeEncoreValable) {
     const canalDemande = demandeOuverte.canal ?? null;
