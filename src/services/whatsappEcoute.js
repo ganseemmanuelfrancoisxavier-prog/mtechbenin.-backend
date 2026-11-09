@@ -1,11 +1,11 @@
 const logger = require("../utils/logger");
 const whatsapp = require("./whatsapp");
 const { ouvrirDemandes } = require("../modules/subscriptions/demandeCodeStore");
-const { motCleDemande, normaliserNumero, memeNumero } = require("../modules/subscriptions/demandeCode");
+const { motCleDemande, normaliserNumero } = require("../modules/subscriptions/demandeCode");
 
-// La confirmation du numéro de souscription est rattachée au JID WhatsApp
-// d'origine et expire rapidement. Elle ne doit jamais permettre à un tiers de
-// réclamer le code d'un autre client en saisissant simplement son numéro.
+// Le numéro de souscription peut être différent du WhatsApp qui demande le
+// code. On garde le JID d'origine pour y envoyer l'OTP après vérification de
+// l'abonnement actif correspondant au numéro fourni.
 const demandesNumero = new Map();
 const ATTENTE_NUMERO_MS = 5 * 60 * 1000;
 
@@ -29,20 +29,13 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
   }
 
   if (motCleDemande(texte)) {
-    if (!normaliserNumero(numero)) {
-      await whatsapp.sendMessageToJid(
-        adresse,
-        `Je n'arrive pas à vérifier votre numéro WhatsApp. Écrivez-nous depuis le numéro utilisé pour souscrire.`,
-      );
-      return { traite: true, raison: "numero-whatsapp-invalide" };
-    }
-    demandesNumero.set(adresse, { numeroWhatsApp: numero, expireLe: maintenant + ATTENTE_NUMERO_MS });
+    demandesNumero.set(adresse, { expireLe: maintenant + ATTENTE_NUMERO_MS });
     await whatsapp.sendMessageToJid(
       adresse,
       [
         `Pour vérifier votre abonnement, envoyez le numéro utilisé lors de la souscription.`,
         `Exemple : +229 97 00 00 00`,
-        `Vous avez 5 minutes. Le numéro doit être celui de votre WhatsApp.`,
+        `Vous avez 5 minutes. Le numéro peut être différent de celui de ce WhatsApp.`,
       ].join("\n"),
     );
     return { traite: true, raison: "numero-demande" };
@@ -61,17 +54,10 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
     return { traite: true, raison: "numero-souscription-invalide" };
   }
 
-  if (!memeNumero(attente.numeroWhatsApp, numeroSouscription)) {
-    await whatsapp.sendMessageToJid(
-      adresse,
-      `Ce numéro ne correspond pas à celui de votre WhatsApp. Pour protéger votre abonnement, demandez le code depuis le numéro utilisé pour souscrire.`,
-    );
-    return { traite: true, raison: "numero-souscription-different" };
-  }
-
   const { demandes, occupations, raison } = await ouvrirDemandes({
     numero: numeroSouscription,
     canal: "whatsapp",
+    demandeurJid: adresse,
   });
 
   if (raison === "numero-invalide") {
