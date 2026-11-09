@@ -313,7 +313,7 @@ async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link })
       const token = randomBytes(10).toString("base64url");
       await redis.set(`apple-invite:${token}`, link, { ex: 60 * 60 * 24 * 365 });
       const baseUrl = String(
-        process.env.RENDER_EXTERNAL_URL || "https://mtechbenin-backend-xp3i.onrender.com",
+        process.env.APPLE_MUSIC_LINK_BASE_URL || "https://mtechbenin.com",
       ).replace(/\/+$/, "");
       appleLink = `${baseUrl}/apple-music/${token}`;
 
