@@ -324,7 +324,7 @@ async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link })
 }
 
 // ── OTP → CLIENT ──────────────────────────────────────────────────────────────
-async function sendOTPToClient({ clientWhatsapp, clientName, serviceName, otpCode }) {
+async function sendOTPToClient({ clientWhatsapp, clientJid, clientName, serviceName, otpCode }) {
   const message = assembler([
     ENTETE,
     ``,
@@ -335,7 +335,7 @@ async function sendOTPToClient({ clientWhatsapp, clientName, serviceName, otpCod
     SIGNATURE,
   ]);
 
-  return sendMessage(clientWhatsapp, message);
+  return clientJid ? sendMessageToJid(clientJid, message) : sendMessage(clientWhatsapp, message);
 }
 
 // ── OTP cadeau — fallback vers l'acheteur ─────────────────────────────────────
