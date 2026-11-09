@@ -330,7 +330,6 @@ async function sendSubscriptionNotifToAdmin({
 }
 
 // ── Lien d'accès → CLIENT ─────────────────────────────────────────────────────
-async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link }) {
 async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link, imageUrl = null }) {
 if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
     let appleLink = link;
