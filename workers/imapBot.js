@@ -840,12 +840,30 @@ async function processEmail(parsed, mailboxEmail, { testOnly = false } = {}) {
     // un code de foyer est a usage unique et ne doit pas etre remis a une
     // seconde personne ni renvoye au meme abonne. Une nouvelle souscription
     // cree une autre commande et peut donc recevoir son propre premier code.
+    const otpExactDejaVu = await prisma.oTPLog.findFirst({
+      where: { orderId: commandeCible.id, otpCode: otp },
+      select: { id: true },
+    });
+    if (otpExactDejaVu) {
+      await consignerCourriel(ligne, {
+        decision: "ignore",
+        raison: "ce code a deja ete traite pour cet abonnement",
+        commandeId: commandeCible.id,
+      });
+      return;
+    }
+
     const codeDejaEnvoye = await prisma.oTPLog.findFirst({
       where: { orderId: commandeCible.id },
       select: { id: true, createdAt: true },
       orderBy: { createdAt: "desc" },
     });
-    if (codeDejaEnvoye) {
+    // Une demande explicite depuis le WhatsApp du titulaire est le parcours
+    // de récupération prévu : elle autorise un nouveau code pour son
+    // abonnement actif. Sans cette demande vérifiée, les codes suivants
+    // restent réservés à l'admin jusqu'à une nouvelle souscription.
+    const demandeClientVerifiee = decision.canalDemande === "whatsapp" && decision.demandeId;
+    if (codeDejaEnvoye && !demandeClientVerifiee) {
       logger.info(`Un OTP a déjà été envoyé pour l'abonnement ${commandeCible.id} — code réservé à l'admin`);
       await notifyAdmin(
         [
