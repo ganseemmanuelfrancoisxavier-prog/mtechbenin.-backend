@@ -1170,16 +1170,15 @@ function watchAccount(account) {
       try {
         const lock = await client.getMailboxLock("INBOX");
         try {
-          // search() retourne des numéros de séquence.
-          //
-          // `since` dégrossit côté serveur, mais ne suffit PAS : la clé SINCE
-          // d'IMAP est à granularité JOURNALIÈRE (RFC 3501). Elle ramène donc
-          // tout le jour courant, pas la dernière heure. Le tri fin se fait
-          // sur la date de chaque message, plus bas.
+          // search() retourne des numéros de séquence. `since` est à
+          // granularité journalière (RFC 3501) ; estCourrielRecent affine
+          // ensuite la sélection à la fenêtre d'une heure. On inclut aussi
+          // les messages déjà lus : Gmail ou un transfert peut les marquer
+          // avant le passage du bot. OtpCourriel déduplique les relectures.
           const depuis = new Date(Date.now() - FENETRE_FRAICHEUR_MS);
-          const seqs = await client.search({ seen: false, since: depuis });
+          const seqs = await client.search({ since: depuis });
           if (seqs.length > 0) {
-            logger.info(`📬 [${tag}] ${seqs.length} email(s) non lu(s) à traiter`);
+            logger.info(`📬 [${tag}] ${seqs.length} email(s) récent(s) à vérifier`);
 
             // fetchAll() charge tout en mémoire AVANT tout STORE.
             // Exécuter messageFlagsAdd() à l'intérieur d'un for-await fetch()
