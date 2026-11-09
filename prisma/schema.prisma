@@ -418,6 +418,7 @@ model LinkAccessLink {
   id             String    @id @default(cuid())
   planId         String
   link           String
+  imageUrl       String?
   status         String    @default("disponible") // "disponible" | "envoyé"
   currentOrderId String?
   // Date de RÉSERVATION, pas d'envoi — d'où le nom.
