@@ -1,7 +1,13 @@
 const logger = require("../utils/logger");
 const whatsapp = require("./whatsapp");
 const { ouvrirDemandes } = require("../modules/subscriptions/demandeCodeStore");
-const { motCleDemande } = require("../modules/subscriptions/demandeCode");
+const { motCleDemande, normaliserNumero, memeNumero } = require("../modules/subscriptions/demandeCode");
+
+// La confirmation du numéro de souscription est rattachée au JID WhatsApp
+// d'origine et expire rapidement. Elle ne doit jamais permettre à un tiers de
+// réclamer le code d'un autre client en saisissant simplement son numéro.
+const demandesNumero = new Map();
+const ATTENTE_NUMERO_MS = 5 * 60 * 1000;
 
 // Traite un message entrant. Rend un compte rendu plutôt que rien, pour que
 // l'appelant puisse journaliser sans avoir à deviner ce qui s'est passé.
@@ -17,10 +23,54 @@ const { motCleDemande } = require("../modules/subscriptions/demandeCode");
 // Sur un JID classique les deux coïncident ; sur un identifiant masqué
 // (`…@lid`) elles n'ont même pas les mêmes chiffres.
 async function traiterMessageEntrant({ adresse, numero, texte }) {
-  if (!motCleDemande(texte)) return { traite: false, raison: "hors-sujet" };
+  const maintenant = Date.now();
+  for (const [jid, demande] of demandesNumero) {
+    if (demande.expireLe <= maintenant) demandesNumero.delete(jid);
+  }
+
+  if (motCleDemande(texte)) {
+    if (!normaliserNumero(numero)) {
+      await whatsapp.sendMessageToJid(
+        adresse,
+        `Je n'arrive pas à vérifier votre numéro WhatsApp. Écrivez-nous depuis le numéro utilisé pour souscrire.`,
+      );
+      return { traite: true, raison: "numero-whatsapp-invalide" };
+    }
+    demandesNumero.set(adresse, { numeroWhatsApp: numero, expireLe: maintenant + ATTENTE_NUMERO_MS });
+    await whatsapp.sendMessageToJid(
+      adresse,
+      [
+        `Pour vérifier votre abonnement, envoyez le numéro utilisé lors de la souscription.`,
+        `Exemple : +229 97 00 00 00`,
+        `Vous avez 5 minutes. Le numéro doit être celui de votre WhatsApp.`,
+      ].join("\n"),
+    );
+    return { traite: true, raison: "numero-demande" };
+  }
+
+  const attente = demandesNumero.get(adresse);
+  if (!attente) return { traite: false, raison: "hors-sujet" };
+  demandesNumero.delete(adresse);
+
+  const numeroSouscription = normaliserNumero(texte);
+  if (!numeroSouscription) {
+    await whatsapp.sendMessageToJid(
+      adresse,
+      `Numéro non reconnu. Écrivez « code » pour recommencer et saisissez le numéro utilisé pour souscrire.`,
+    );
+    return { traite: true, raison: "numero-souscription-invalide" };
+  }
+
+  if (!memeNumero(attente.numeroWhatsApp, numeroSouscription)) {
+    await whatsapp.sendMessageToJid(
+      adresse,
+      `Ce numéro ne correspond pas à celui de votre WhatsApp. Pour protéger votre abonnement, demandez le code depuis le numéro utilisé pour souscrire.`,
+    );
+    return { traite: true, raison: "numero-souscription-different" };
+  }
 
   const { demandes, occupations, raison } = await ouvrirDemandes({
-    numero,
+    numero: numeroSouscription,
     canal: "whatsapp",
   });
 
