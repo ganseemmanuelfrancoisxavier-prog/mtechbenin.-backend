@@ -20,7 +20,7 @@ const {
 // Une demande déjà ouverte sur la même occupation est REMPLACÉE, pas doublée :
 // redemander parce qu'on n'a rien reçu ne doit pas empiler des fenêtres qui
 // se disputeraient le prochain code.
-async function ouvrirDemandes({ numero, canal }) {
+async function ouvrirDemandes({ numero, canal, demandeurJid = null }) {
   const normalise = normaliserNumero(numero);
   if (!normalise) return { demandes: [], occupations: [], raison: "numero-invalide" };
 
@@ -90,6 +90,7 @@ async function ouvrirDemandes({ numero, canal }) {
           accountId: occupation.profile.accountId,
           occupancyId: occupation.id,
           canal,
+          demandeurJid,
           requestedAt: maintenant,
           expiresAt,
         },
