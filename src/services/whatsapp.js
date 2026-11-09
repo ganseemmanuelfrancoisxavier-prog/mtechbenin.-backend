@@ -293,6 +293,21 @@ async function sendSubscriptionNotifToAdmin({
 
 // ── Lien d'accès → CLIENT ─────────────────────────────────────────────────────
 async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link }) {
+  // Baileys extrait la première URL du texte et récupère sa vignette OpenGraph.
+  // La placer en tête du message permet à WhatsApp d'afficher l'aperçu Apple
+  // Music cliquable avant le texte, au lieu d'un long lien noyé dans le message.
+  if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
+    const message = assembler([
+      `${link}`,
+      `🎵 ${gras("Votre accès Apple Music est prêt")}`,
+      `Touchez l'aperçu du lien ci-dessus pour ouvrir Apple Music.`,
+      `Lien personnel — ne le partagez pas.`,
+      ``,
+      SIGNATURE,
+    ]);
+    return sendMessage(clientWhatsapp, message);
+  }
+
   const message = assembler([
     ENTETE,
     ``,
