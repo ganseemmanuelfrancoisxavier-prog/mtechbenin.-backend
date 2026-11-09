@@ -349,6 +349,7 @@ function decideEnvoi({
       raison: "demande-ouverte",
       occupation: occupationDemandee,
       demandeId: demandeOuverte.id,
+      demandeurJid: canalDemande === "whatsapp" ? demandeOuverte.demandeurJid || null : null,
       occupantsActifs: occupations.length,
       canalDemande,
       alerteAmbiguite: canalDemande === "web" && occupations.length > 1,
