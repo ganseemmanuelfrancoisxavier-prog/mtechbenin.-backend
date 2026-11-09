@@ -72,4 +72,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
 # Les migrations ne sont PAS jouées ici : plusieurs conteneurs démarrant
 # ensemble les joueraient en parallèle sur la même base. `src/app.js` les
 # applique déjà au démarrage, avec son propre garde-fou.
-CMD ["node", "src/app.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy || true; node scripts/backfill-legacy-occupancies.js; exec node src/app.js"]
