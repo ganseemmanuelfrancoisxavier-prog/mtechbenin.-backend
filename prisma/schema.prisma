@@ -395,6 +395,7 @@ model OtpRequest {
   accountId   String
   occupancyId String
   canal       String
+  demandeurJid String?
   requestedAt DateTime  @default(now())
   expiresAt   DateTime
   servedAt    DateTime?
