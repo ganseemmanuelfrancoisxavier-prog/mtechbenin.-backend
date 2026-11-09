@@ -747,12 +747,14 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
             clientName: recipientName,
             serviceName: plan.service.name,
             link: lienReserve.link,
+            imageUrl: lienReserve.imageUrl || null,
           })
           .catch(() => false);
 
-        // Même règle que ci-dessus : sur un cadeau, aucun e-mail ne part.
+        // Une photo accompagne le lien dans le même message WhatsApp ; l'e-mail
+        // ne doit ni se substituer à cette livraison ni envoyer un second lien.
         const emailOk =
-          order.guestEmail && !isGift
+          order.guestEmail && !isGift && !lienReserve.imageUrl
             ? await emailSvc
                 .sendLinkAccess({
                   clientEmail: order.guestEmail,
@@ -2994,9 +2996,24 @@ async function addPoolLink(req, res) {
 
 async function updatePoolLink(req, res) {
   const brut = req.body?.link;
+  const hasImage = Object.prototype.hasOwnProperty.call(req.body || {}, "imageUrl");
+  const imageUrl = req.body?.imageUrl;
   if (!lienValide(brut)) return res.status(400).json({ error: "Lien invalide — attendu une adresse http ou https" });
+  if (hasImage && imageUrl) {
+    let photo;
+    try { photo = new URL(String(imageUrl)); } catch { photo = null; }
+    if (!photo || photo.protocol !== "https:" || photo.hostname !== "res.cloudinary.com" || !photo.pathname.includes("/image/upload/")) {
+      return res.status(400).json({ error: "Image invalide — importez une image depuis le panneau." });
+    }
+  }
   try {
-    const link = await prisma.linkAccessLink.update({ where: { id: req.params.id }, data: { link: String(brut).trim() } });
+    const link = await prisma.linkAccessLink.update({
+      where: { id: req.params.id },
+      data: {
+        link: String(brut).trim(),
+        ...(hasImage ? { imageUrl: imageUrl ? String(imageUrl).trim() : null } : {}),
+      },
+    });
     return res.json({ link });
   } catch (err) {
     if (err.code === "P2002") return res.status(400).json({ error: "Ce lien figure déjà dans la réserve de cette formule" });
@@ -3091,7 +3108,7 @@ async function deleteLinkClient(req, res) {
 
 async function sendLinkToClient(req, res) {
   try {
-    const { link, imageUrl = null } = req.body;
+    const { link } = req.body;
     if (!link) return res.status(400).json({ error: "Lien requis" });
 
     const client = await prisma.linkAccessClient.findUnique({
@@ -3099,22 +3116,6 @@ async function sendLinkToClient(req, res) {
       include: { plan: { include: { service: true } } },
     });
     if (!client) return res.status(404).json({ error: "Client introuvable" });
-
-    if (imageUrl) {
-      let photo;
-      try { photo = new URL(String(imageUrl)); } catch { photo = null; }
-      if (
-        !photo ||
-        photo.protocol !== "https:" ||
-        photo.hostname !== "res.cloudinary.com" ||
-        !photo.pathname.includes("/image/upload/")
-      ) {
-        return res.status(400).json({ error: "Image invalide — choisissez une image importée dans le panneau." });
-      }
-      if (!client.whatsapp) {
-        return res.status(400).json({ error: "Une photo ne peut être envoyée que sur WhatsApp." });
-      }
-    }
 
     // ── Ce lien appartient-il bien a la formule de ce client ? ──────────────
     //
@@ -3140,6 +3141,17 @@ async function sendLinkToClient(req, res) {
           `(${ailleurs.plan.price} XOF), pas à celle de ce client. ` +
           `Choisissez un lien de sa formule.`,
       });
+    }
+
+    // L’image est enregistrée sur le lien de réserve. Quand l’administrateur
+    // colle ce lien dans l’envoi manuel, on récupère la photo associée ici.
+    const lienReserve = await prisma.linkAccessLink.findFirst({
+      where: { planId: client.planId, link: String(link).trim() },
+      select: { imageUrl: true },
+    });
+    const imageUrl = lienReserve?.imageUrl || null;
+    if (imageUrl && !client.whatsapp) {
+      return res.status(400).json({ error: "Ce lien contient une photo et doit être envoyé sur WhatsApp." });
     }
 
     // Les deux envois rendent des booléens fiables (`sendMessage` de
