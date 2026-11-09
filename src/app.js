@@ -7,6 +7,7 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const logger = require("./utils/logger");
 const prisma = require("./services/prisma");
+const redis = require("./services/redis");
 
 // Comparaison à temps constant pour les secrets en clair (ADMIN_API_KEY, QR_SECRET).
 function timingSafeEqualStr(a, b) {
@@ -379,6 +380,68 @@ app.get("/api/otp/status", isAdmin, async (req, res) => {
   } catch (err) {
     logger.error("Erreur /api/otp/status", { err: err.message });
     return res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+// Lien Apple Music court avec aperçu WhatsApp.
+app.get("/apple-music/:token", async (req, res) => {
+  const token = String(req.params.token || "");
+  if (!/^[A-Za-z0-9_-]{14}$/.test(token)) {
+    return res.status(404).send("Lien introuvable");
+  }
+
+  try {
+    const target = await redis.get(`apple-invite:${token}`);
+    if (typeof target !== "string") return res.status(404).send("Lien expiré ou introuvable");
+
+    let invite;
+    try {
+      invite = new URL(target);
+    } catch {
+      return res.status(404).send("Lien introuvable");
+    }
+    if (
+      invite.protocol !== "https:" ||
+      invite.hostname !== "setup.icloud.com" ||
+      invite.pathname !== "/family/messages"
+    ) {
+      return res.status(404).send("Lien introuvable");
+    }
+
+    const urlSure = target
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const previewUrl = `https://mtechbenin-backend-xp3i.onrender.com/apple-music/${token}`;
+    const imageUrl = "https://www.mtechbenin.com/images/categories/abonnements.jpg";
+    res
+      .status(200)
+      .set("Content-Type", "text/html; charset=utf-8")
+      .set("Cache-Control", "private, no-store, max-age=0")
+      .set("Referrer-Policy", "no-referrer")
+      .send(`<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apple Music — votre accès est prêt</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="Apple Music — votre accès est prêt">
+<meta property="og:description" content="Touchez l’aperçu pour ouvrir votre invitation Apple Music.">
+<meta property="og:image" content="${imageUrl}">
+<meta property="og:url" content="${previewUrl}">
+<meta name="twitter:card" content="summary_large_image">
+<meta http-equiv="refresh" content="0;url=${urlSure}">
+</head>
+<body>
+<p>Ouverture de votre invitation Apple Music…</p>
+<p><a href="${urlSure}" rel="noreferrer">Touchez ici si la redirection ne démarre pas.</a></p>
+</body>
+</html>`);
+  } catch (err) {
+    logger.warn("Aperçu Apple Music indisponible", { err: err.message });
+    return res.status(503).send("Service momentanément indisponible");
   }
 });
 
