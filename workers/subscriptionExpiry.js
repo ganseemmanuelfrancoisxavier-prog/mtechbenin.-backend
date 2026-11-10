@@ -126,15 +126,25 @@ async function nettoyerHistoriqueLiensExpires(now = new Date()) {
     select: { id: true },
   });
   const ids = commandesExpirees.map((commande) => commande.id);
-  if (ids.length === 0) return { commandes: 0, supprimes: 0 };
+  if (ids.length === 0) return { commandes: 0, clientsSupprimes: 0, liensSupprimes: 0 };
 
-  const resultat = await prisma.linkAccessLink.deleteMany({
+  // Une commande possède une fiche dans « Clients ayant payé ». La supprimer
+  // à son échéance retire aussi ses coordonnées du panneau. Les commandes et
+  // paiements restent conservés pour l'historique comptable.
+  const clients = await prisma.linkAccessClient.deleteMany({
+    where: { subscriptionOrderId: { in: ids } },
+  });
+  const liens = await prisma.linkAccessLink.deleteMany({
     where: {
       status: "envoyé",
       currentOrderId: { in: ids },
     },
   });
-  return { commandes: ids.length, supprimes: resultat.count };
+  return {
+    commandes: ids.length,
+    clientsSupprimes: clients.count,
+    liensSupprimes: liens.count,
+  };
 }
 
 // Sélectionne les abonnements à prévenir et envoie le rappel.
@@ -254,9 +264,11 @@ function demarrerRappels() {
     );
   const nettoyer = () =>
     nettoyerHistoriqueLiensExpires()
-      .then(({ supprimes }) => {
-        if (supprimes > 0) {
-          logger.info(`Historique des liens expirés : ${supprimes} entrée(s) supprimée(s)`);
+      .then(({ clientsSupprimes, liensSupprimes }) => {
+        if (clientsSupprimes > 0 || liensSupprimes > 0) {
+          logger.info(
+            `Abonnements expirés nettoyés : ${clientsSupprimes} fiche(s) client et ${liensSupprimes} lien(s) d'historique supprimé(s)`,
+          );
         }
       })
       .catch((err) =>
