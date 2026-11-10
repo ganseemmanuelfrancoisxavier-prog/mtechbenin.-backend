@@ -435,18 +435,16 @@ app.get("/apple-music/:token", async (req, res) => {
 <meta http-equiv="refresh" content="0;url=${urlSure}">
 <style>
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;padding:20px;background:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;color:#171717}
-main{width:min(100%,460px);overflow:hidden;border-radius:24px;background:#fff;box-shadow:0 12px 40px rgba(0,0,0,.12);text-align:center}
-.poster{display:block;width:100%;max-height:68vh;object-fit:contain;background:#fff}
-.content{padding:16px 20px 22px}
-h1{margin:0 0 8px;font-size:20px;line-height:1.25}
-p{margin:0 0 16px;color:#666;font-size:14px;line-height:1.45}
+body{margin:0;min-height:100vh;padding:20px;background:radial-gradient(ellipse at 50% 0%,#37373d 0%,#19191d 48%,#0c0c0f 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;color:#fff}
+main{width:min(100%,460px);overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:rgba(30,30,34,.88);box-shadow:0 18px 60px rgba(0,0,0,.48);backdrop-filter:blur(18px);text-align:center}
+.content{padding:30px 24px}
+h1{margin:0 0 12px;color:#fff;font-size:22px;line-height:1.25}
+p{margin:0 0 20px;color:#d0d0d5;font-size:15px;line-height:1.5}
 .invitation{display:flex;min-height:54px;align-items:center;justify-content:center;border-radius:14px;background:#f5223e;color:#fff;font-size:18px;font-weight:700;text-decoration:none}
 </style>
 </head>
 <body>
 <main>
-<img class="poster" src="/images/apple-music-invitation.jpg" alt="Apple Music">
 <div class="content">
 <h1>Votre invitation Apple Music est prête</h1>
 <p>Si la redirection ne démarre pas, touchez le bouton ci-dessous.</p>
