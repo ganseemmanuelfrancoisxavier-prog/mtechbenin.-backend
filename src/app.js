@@ -446,7 +446,7 @@ p{margin:0 0 16px;color:#666;font-size:14px;line-height:1.45}
 </head>
 <body>
 <main>
-<img class="poster" src="${imageUrl}" alt="Apple Music — invitation familiale">
+<img class="poster" src="/images/apple-music-invitation.jpg" alt="Apple Music">
 <div class="content">
 <h1>Votre invitation Apple Music est prête</h1>
 <p>Si la redirection ne démarre pas, touchez le bouton ci-dessous.</p>
