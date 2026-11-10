@@ -749,14 +749,14 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
             clientName: recipientName,
             serviceName: plan.service.name,
             link: lienReserve.link,
-            imageUrl: lienReserve.imageUrl || null,
+            imageUrl: plan.linkImageUrl || null,
           })
           .catch(() => false);
 
-        // Une photo accompagne le lien dans le même message WhatsApp ; l'e-mail
-        // ne doit ni se substituer à cette livraison ni envoyer un second lien.
+        // La photo commune à l'offre accompagne le lien dans le même message
+        // WhatsApp ; aucun e-mail séparé ne doit envoyer un second lien.
         const emailOk =
-          order.guestEmail && !isGift && !lienReserve.imageUrl
+          order.guestEmail && !isGift && !plan.linkImageUrl
             ? await emailSvc
                 .sendLinkAccess({
                   clientEmail: order.guestEmail,
@@ -1273,6 +1273,15 @@ function normaliserDescription(brut) {
   return { ok: true, valeur: propres };
 }
 
+function imageUrlCloudinaryValide(raw) {
+  if (raw === undefined || raw === null || raw === "") return true;
+  let image;
+  try { image = new URL(String(raw)); } catch { return false; }
+  return image.protocol === "https:" &&
+    image.hostname === "res.cloudinary.com" &&
+    image.pathname.includes("/image/upload/");
+}
+
 async function createPlan(req, res) {
   try {
     const desc = normaliserDescription(req.body.description);
@@ -1289,10 +1298,14 @@ async function createPlan(req, res) {
         error: "Durée manquante — indiquez un nombre de mois, ou cochez « à vie »",
       });
     }
+    if (!imageUrlCloudinaryValide(req.body.linkImageUrl)) {
+      return res.status(400).json({ error: "Photo invalide — importez une image depuis le panneau." });
+    }
 
     const plan = await prisma.subscriptionPlan.create({
       data: {
         ...req.body,
+        linkImageUrl: req.body.linkImageUrl ? String(req.body.linkImageUrl).trim() : null,
         // Apres l'etalement : les valeurs normalisees doivent primer sur celles
         // du corps, sinon le `aVie` brut du panel les remettrait telles quelles.
         ...dur.champs,
@@ -1313,6 +1326,14 @@ async function updatePlan(req, res) {
     if (!desc.ok) return res.status(400).json({ error: desc.erreur });
 
     const data = { ...req.body };
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "linkImageUrl")) {
+      if (!imageUrlCloudinaryValide(req.body.linkImageUrl)) {
+        return res.status(400).json({ error: "Photo invalide — importez une image depuis le panneau." });
+      }
+      data.linkImageUrl = req.body.linkImageUrl
+        ? String(req.body.linkImageUrl).trim()
+        : null;
+    }
     // `undefined` signifie « le panel n'a pas envoyé ce champ » : on laisse
     // alors la description en place. Un tableau vide, lui, est une demande
     // explicite d'effacement.
@@ -3172,13 +3193,8 @@ async function sendLinkToClient(req, res) {
       });
     }
 
-    // L’image est enregistrée sur le lien de réserve. Quand l’administrateur
-    // colle ce lien dans l’envoi manuel, on récupère la photo associée ici.
-    const lienReserve = await prisma.linkAccessLink.findFirst({
-      where: { planId: client.planId, link: String(link).trim() },
-      select: { imageUrl: true },
-    });
-    const imageUrl = lienReserve?.imageUrl || null;
+    // Une image unique, enregistrée sur la formule, accompagne chacun de ses liens.
+    const imageUrl = client.plan.linkImageUrl || null;
     if (imageUrl && !client.whatsapp) {
       return res.status(400).json({ error: "Ce lien contient une photo et doit être envoyé sur WhatsApp." });
     }
