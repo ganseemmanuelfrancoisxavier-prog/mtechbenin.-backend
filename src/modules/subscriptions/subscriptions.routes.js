@@ -20,6 +20,9 @@ const {
   updateFamilyAccount,
   deleteFamilyAccount,
   getPoolLinks,
+  createLinkAccessAccount,
+  deleteLinkAccessAccount,
+  addLinkAccessAccountLink,
   addPoolLink,
   updatePoolLink,
   deletePoolLink,
@@ -107,6 +110,11 @@ router.get("/admin/plans/:planId/link-clients", isAdmin, getLinkClients);
 router.post("/admin/plans/:planId/link-clients", isAdmin, addLinkClient);
 router.delete("/admin/link-clients/:id", isAdmin, deleteLinkClient);
 router.post("/admin/link-clients/:id/send", isAdmin, sendLinkToClient);
+
+// Comptes Apple Music : cinq liens maximum par compte et par formule.
+router.post("/admin/plans/:planId/link-accounts", isAdmin, createLinkAccessAccount);
+router.delete("/admin/link-accounts/:id", isAdmin, deleteLinkAccessAccount);
+router.post("/admin/link-accounts/:id/links", isAdmin, addLinkAccessAccountLink);
 
 // Réserve de liens (calque des routes accounts pour les formules famille)
 router.get("/admin/plans/:planId/pool-links", isAdmin, getPoolLinks);
