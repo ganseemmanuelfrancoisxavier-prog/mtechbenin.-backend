@@ -323,6 +323,7 @@ model SubscriptionPlan {
   orders      SubscriptionOrder[]
   linkClients LinkAccessClient[]
   poolLinks   LinkAccessLink[]
+  linkAccounts LinkAccessAccount[]
 
   @@index([serviceId])
 }
@@ -410,6 +411,20 @@ model OtpRequest {
   @@index([occupancyId])
 }
 
+// Comptes Apple Music et leurs cinq emplacements d'invitation par formule.
+model LinkAccessAccount {
+  id        String   @id @default(cuid())
+  planId    String
+  email     String
+  createdAt DateTime @default(now())
+
+  plan  SubscriptionPlan @relation(fields: [planId], references: [id])
+  links LinkAccessLink[]
+
+  @@unique([planId, email])
+  @@index([planId])
+}
+
 // Réserve de liens d'accès, calque de FamilyAccount : l'administrateur la
 // remplit à l'avance, un paiement en consomme une ligne.
 //
@@ -423,6 +438,9 @@ model LinkAccessLink {
   imageUrl       String?
   status         String    @default("disponible") // "disponible" | "envoyé"
   currentOrderId String?
+  accountId      String?
+  slotNumber     Int?
+  account        LinkAccessAccount? @relation(fields: [accountId], references: [id])
   // Date de RÉSERVATION, pas d'envoi — d'où le nom.
   claimedAt      DateTime?
   createdAt      DateTime  @default(now())
@@ -436,7 +454,9 @@ model LinkAccessLink {
   // deux clients successifs. La contrainte porte sur le couple : la même
   // adresse reste légitime dans la réserve d'une AUTRE formule.
   @@unique([planId, link])
+  @@unique([accountId, slotNumber])
   @@index([planId, status])
+  @@index([accountId])
 }
 
 model LinkAccessClient {
