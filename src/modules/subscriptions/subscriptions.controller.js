@@ -933,6 +933,10 @@ async function deleteOrder(req, res) {
         where: { currentOrderId: order.id },
         data: { currentOrderId: null },
       });
+      await tx.linkAccessClient.updateMany({
+        where: { subscriptionOrderId: order.id },
+        data: { subscriptionOrderId: null },
+      });
       await tx.subscriptionOrder.delete({ where: { id: order.id } });
       return order;
     });
@@ -1177,6 +1181,10 @@ async function deleteService(req, res) {
         await tx.linkAccessLink.updateMany({
           where: { currentOrderId: { in: orderIds } },
           data: { currentOrderId: null },
+        });
+        await tx.linkAccessClient.updateMany({
+          where: { subscriptionOrderId: { in: orderIds } },
+          data: { subscriptionOrderId: null },
         });
         await tx.subscriptionOrder.deleteMany({ where: { id: { in: orderIds } } });
       }
@@ -3242,6 +3250,17 @@ async function sendLinkToClient(req, res) {
         ...(client.subscriptionOrderId ? { currentOrderId: client.subscriptionOrderId } : {}),
       },
     });
+    if (client.subscriptionOrderId) {
+      await prisma.linkAccessLink.updateMany({
+        where: {
+          planId: client.planId,
+          link,
+          status: "envoyé",
+          currentOrderId: null,
+        },
+        data: { currentOrderId: client.subscriptionOrderId },
+      });
+    }
 
     await prisma.linkAccessClient.update({
       where: { id: req.params.id },
