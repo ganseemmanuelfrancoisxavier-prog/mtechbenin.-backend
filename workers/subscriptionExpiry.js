@@ -111,6 +111,31 @@ function expireDemain(expiresAt, now = new Date()) {
 }
 
 const INTERVALLE_MS = 6 * 3600 * 1000;
+const INTERVALLE_NETTOYAGE_HISTORIQUE_MS = 15 * 60 * 1000;
+
+// Supprime les lignes de réserve attribuées aux abonnements arrivés à échéance.
+// La commande et la ligne client restent intactes : seule l'entrée de l'historique
+// du lien est retirée. Les liens à vie ou sans date n'entrent pas dans ce filtre.
+async function nettoyerHistoriqueLiensExpires(now = new Date()) {
+  const prisma = require("../src/services/prisma");
+  const commandesExpirees = await prisma.subscriptionOrder.findMany({
+    where: {
+      status: "CONFIRMED",
+      expiresAt: { not: null, lte: now },
+    },
+    select: { id: true },
+  });
+  const ids = commandesExpirees.map((commande) => commande.id);
+  if (ids.length === 0) return { commandes: 0, supprimes: 0 };
+
+  const resultat = await prisma.linkAccessLink.deleteMany({
+    where: {
+      status: "envoyé",
+      currentOrderId: { in: ids },
+    },
+  });
+  return { commandes: ids.length, supprimes: resultat.count };
+}
 
 // Sélectionne les abonnements à prévenir et envoie le rappel.
 //
@@ -227,8 +252,20 @@ function demarrerRappels() {
     envoyerRappelsDus().catch((err) =>
       logger.error("Vérification des rappels d'expiration échouée", { err: err.message }),
     );
+  const nettoyer = () =>
+    nettoyerHistoriqueLiensExpires()
+      .then(({ supprimes }) => {
+        if (supprimes > 0) {
+          logger.info(`Historique des liens expirés : ${supprimes} entrée(s) supprimée(s)`);
+        }
+      })
+      .catch((err) =>
+        logger.error("Nettoyage de l'historique des liens expirés échoué", { err: err.message }),
+      );
   passer();
+  nettoyer();
   setInterval(passer, INTERVALLE_MS);
+  setInterval(nettoyer, INTERVALLE_NETTOYAGE_HISTORIQUE_MS);
   logger.info("⏰ Rappels d'expiration actifs — vérification toutes les 6 h, envoi entre 7 h et 21 h");
 }
 
@@ -242,5 +279,6 @@ module.exports = {
   HEURE_MIN,
   HEURE_MAX,
   envoyerRappelsDus,
+  nettoyerHistoriqueLiensExpires,
   demarrerRappels,
 };
