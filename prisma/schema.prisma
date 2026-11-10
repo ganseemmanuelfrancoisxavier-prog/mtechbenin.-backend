@@ -438,10 +438,11 @@ model LinkAccessLink {
 }
 
 model LinkAccessClient {
-  id        String           @id @default(cuid())
-  planId    String
-  name      String
-  whatsapp  String?
+  id                  String           @id @default(cuid())
+  planId              String
+  subscriptionOrderId String?
+  name                String
+  whatsapp            String?
   email     String?
   link      String?
   status    String           @default("en_attente")
@@ -451,6 +452,7 @@ model LinkAccessClient {
   plan      SubscriptionPlan @relation(fields: [planId], references: [id])
 
   @@index([planId, status])
+  @@index([subscriptionOrderId])
 }
 
 model SubscriptionOrder {
