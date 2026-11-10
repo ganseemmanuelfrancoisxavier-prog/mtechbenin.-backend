@@ -991,6 +991,10 @@ async function getAdminDashboard(req, res) {
             poolLinks: {
               orderBy: { createdAt: "asc" },
             },
+            linkAccounts: {
+              orderBy: { createdAt: "asc" },
+              include: { links: { orderBy: { slotNumber: "asc" } } },
+            },
           },
           orderBy: { price: "asc" },
         },
@@ -2994,6 +2998,81 @@ async function listerDemandes(req, res) {
 
 // ── ADMIN — Réserve de liens ──────────────────────────────────────────────────
 
+async function createLinkAccessAccount(req, res) {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Adresse e-mail invalide" });
+  }
+  try {
+    const account = await prisma.linkAccessAccount.create({
+      data: { planId: req.params.planId, email },
+      include: { links: true },
+    });
+    return res.status(201).json({ account });
+  } catch (err) {
+    if (err.code === "P2002") return res.status(409).json({ error: "Ce compte existe déjà dans cette formule" });
+    if (err.code === "P2003") return res.status(404).json({ error: "Formule introuvable" });
+    logger.error("Erreur createLinkAccessAccount", { err: err.message });
+    return res.status(400).json({ error: "Création du compte impossible" });
+  }
+}
+
+async function deleteLinkAccessAccount(req, res) {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const account = await tx.linkAccessAccount.findUnique({
+        where: { id: req.params.id },
+        include: { links: { select: { id: true, status: true } } },
+      });
+      if (!account) return { missing: true };
+      if (account.links.some((link) => link.status !== "disponible")) return { active: true };
+      await tx.linkAccessLink.deleteMany({ where: { accountId: account.id, status: "disponible" } });
+      await tx.linkAccessAccount.delete({ where: { id: account.id } });
+      return { deleted: true };
+    });
+    if (result.missing) return res.status(404).json({ error: "Compte introuvable" });
+    if (result.active) return res.status(409).json({ error: "Ce compte contient un lien envoyé à un abonné actif" });
+    return res.json({ message: "Compte supprimé" });
+  } catch (err) {
+    logger.error("Erreur deleteLinkAccessAccount", { err: err.message });
+    return res.status(400).json({ error: "Suppression du compte impossible" });
+  }
+}
+
+async function addLinkAccessAccountLink(req, res) {
+  const brut = req.body?.link;
+  if (!lienValide(brut)) return res.status(400).json({ error: "Lien invalide — attendu une adresse http ou https" });
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      const account = await tx.linkAccessAccount.findUnique({
+        where: { id: req.params.id },
+        include: { links: { select: { slotNumber: true } } },
+      });
+      if (!account) return { missing: true };
+      const used = new Set(account.links.map((link) => link.slotNumber));
+      const slotNumber = [1, 2, 3, 4, 5].find((slot) => !used.has(slot));
+      if (!slotNumber) return { full: true };
+      const link = await tx.linkAccessLink.create({
+        data: {
+          planId: account.planId,
+          accountId: account.id,
+          slotNumber,
+          link: String(brut).trim(),
+          status: "disponible",
+        },
+      });
+      return { link };
+    });
+    if (created.missing) return res.status(404).json({ error: "Compte introuvable" });
+    if (created.full) return res.status(409).json({ error: "Ce compte a déjà ses cinq liens" });
+    return res.status(201).json({ link: created.link });
+  } catch (err) {
+    if (err.code === "P2002") return res.status(409).json({ error: "Ce lien existe déjà ou cet emplacement vient d'être pris" });
+    logger.error("Erreur addLinkAccessAccountLink", { err: err.message });
+    return res.status(400).json({ error: "Ajout du lien impossible" });
+  }
+}
+
 async function getPoolLinks(req, res) {
   try {
     const links = await prisma.linkAccessLink.findMany({
@@ -3569,6 +3648,10 @@ module.exports = {
   // Demande de code
   demanderCode,
   listerDemandes,
+  // Admin — comptes Apple Music et liens par compte
+  createLinkAccessAccount,
+  deleteLinkAccessAccount,
+  addLinkAccessAccountLink,
   // Admin — réserve de liens
   getPoolLinks,
   addPoolLink,
