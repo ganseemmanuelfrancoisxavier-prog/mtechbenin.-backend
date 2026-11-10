@@ -430,6 +430,7 @@ async function assignSubscriptionAfterPayment(subOrderId) {
     await prisma.linkAccessClient.create({
       data: {
         planId: subOrder.planId,
+        subscriptionOrderId: subOrderId,
         name: subOrder.clientName,
         whatsapp: subOrder.clientWhatsapp,
         email: subOrder.clientEmail || null,
@@ -712,6 +713,7 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
     const ligneClient = await prisma.linkAccessClient.create({
       data: {
         planId,
+        subscriptionOrderId: subOrder?.id || null,
         name: recipientName,
         whatsapp: recipientWhatsapp,
         // Sur une commande cadeau : AUCUNE adresse enregistrée. La base ne
@@ -3065,6 +3067,25 @@ async function deletePoolLink(req, res) {
 
 // ── ADMIN — Link access ───────────────────────────────────────────────────────
 
+async function deletePoolLinkHistory(req, res) {
+  try {
+    const result = await prisma.linkAccessLink.deleteMany({
+      where: { id: req.params.id, status: "envoyé" },
+    });
+    if (result.count === 1) return res.json({ message: "Entrée d’historique supprimée" });
+
+    const link = await prisma.linkAccessLink.findUnique({
+      where: { id: req.params.id },
+      select: { status: true },
+    });
+    if (!link) return res.status(404).json({ error: "Entrée introuvable" });
+    return res.status(409).json({ error: "Cette entrée n’est plus dans l’historique" });
+  } catch (err) {
+    logger.error("Erreur deletePoolLinkHistory", { err: err.message });
+    return res.status(500).json({ error: "Suppression de l’entrée impossible" });
+  }
+}
+
 async function getLinkClients(req, res) {
   try {
     const clients = await prisma.linkAccessClient.findMany({
@@ -3215,7 +3236,11 @@ async function sendLinkToClient(req, res) {
     // zéro ligne, sans erreur.
     await prisma.linkAccessLink.updateMany({
       where: { planId: client.planId, link, status: "disponible" },
-      data: { status: "envoyé", claimedAt: new Date() },
+      data: {
+        status: "envoyé",
+        claimedAt: new Date(),
+        ...(client.subscriptionOrderId ? { currentOrderId: client.subscriptionOrderId } : {}),
+      },
     });
 
     await prisma.linkAccessClient.update({
@@ -3506,6 +3531,7 @@ module.exports = {
   addLinkClient,
   deleteLinkClient,
   sendLinkToClient,
+  deletePoolLinkHistory,
   // Interne
   assignSubscriptionAfterPayment,
   assignSubscriptionFromOrderItem,
