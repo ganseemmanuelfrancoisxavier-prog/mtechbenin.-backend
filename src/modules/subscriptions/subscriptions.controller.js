@@ -236,9 +236,9 @@ async function createOrder(req, res) {
 // rend l'opération sûre : deux paiements simultanés lisent la même liste de
 // candidats, mais seule la première écriture rend `count === 1`. La seconde
 // passe au candidat suivant. Ne pas retirer cette garde.
-async function claimLinkAccessLink(planId, currentOrderId = null, reuseWhenEmpty = false) {
+async function claimLinkAccessLink(planId, currentOrderId = null, reuseWhenEmpty = false, accountOnly = false) {
   const candidates = await prisma.linkAccessLink.findMany({
-    where: { planId, status: "disponible" },
+    where: { planId, status: "disponible", ...(accountOnly ? { accountId: { not: null } } : {}) },
     orderBy: { createdAt: "asc" },
   });
   for (const candidate of candidates) {
@@ -257,7 +257,7 @@ async function claimLinkAccessLink(planId, currentOrderId = null, reuseWhenEmpty
   // On ne change pas le propriétaire de l'entrée d'historique déjà attribuée.
   if (reuseWhenEmpty) {
     return prisma.linkAccessLink.findFirst({
-      where: { planId, status: "envoyé" },
+      where: { planId, status: "envoyé", ...(accountOnly ? { accountId: { not: null } } : {}) },
       orderBy: { createdAt: "asc" },
     });
   }
@@ -751,6 +751,7 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
         planId,
         subOrder?.id || null,
         plan.aVie === true,
+        plan.service?.slug === "apple-music" || /apple music/i.test(plan.service?.name || ""),
       );
 
       if (lienReserve) {
@@ -3041,7 +3042,11 @@ async function deleteLinkAccessAccount(req, res) {
 
 async function addLinkAccessAccountLink(req, res) {
   const brut = req.body?.link;
+  const requestedSlot = req.body?.slotNumber == null ? null : Number(req.body.slotNumber);
   if (!lienValide(brut)) return res.status(400).json({ error: "Lien invalide — attendu une adresse http ou https" });
+  if (requestedSlot !== null && (!Number.isInteger(requestedSlot) || requestedSlot < 1 || requestedSlot > 5)) {
+    return res.status(400).json({ error: "Emplacement invalide (choisir une place de 1 à 5)" });
+  }
   try {
     const created = await prisma.$transaction(async (tx) => {
       const account = await tx.linkAccessAccount.findUnique({
@@ -3050,8 +3055,9 @@ async function addLinkAccessAccountLink(req, res) {
       });
       if (!account) return { missing: true };
       const used = new Set(account.links.map((link) => link.slotNumber));
-      const slotNumber = [1, 2, 3, 4, 5].find((slot) => !used.has(slot));
+      const slotNumber = requestedSlot ?? [1, 2, 3, 4, 5].find((slot) => !used.has(slot));
       if (!slotNumber) return { full: true };
+      if (used.has(slotNumber)) return { occupied: true };
       const link = await tx.linkAccessLink.create({
         data: {
           planId: account.planId,
@@ -3065,6 +3071,7 @@ async function addLinkAccessAccountLink(req, res) {
     });
     if (created.missing) return res.status(404).json({ error: "Compte introuvable" });
     if (created.full) return res.status(409).json({ error: "Ce compte a déjà ses cinq liens" });
+    if (created.occupied) return res.status(409).json({ error: "Cet emplacement contient déjà un lien" });
     return res.status(201).json({ link: created.link });
   } catch (err) {
     if (err.code === "P2002") return res.status(409).json({ error: "Ce lien existe déjà ou cet emplacement vient d'être pris" });
