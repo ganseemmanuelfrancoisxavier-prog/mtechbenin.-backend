@@ -447,7 +447,7 @@ p{margin:0 0 20px;color:#d0d0d5;font-size:15px;line-height:1.5}
 <main>
 <div class="content">
 <h1>Votre invitation Apple Music est prête</h1>
-<p>Si la redirection ne démarre pas, touchez le bouton ci-dessous.</p>
+<p>Si la redirection ne démarre pas, touchez le bouton ci-dessous puis patientez que votre page s’ouvre.</p>
 <a class="invitation" href="${urlSure}" rel="noreferrer">Invitation</a>
 </div>
 </main>
