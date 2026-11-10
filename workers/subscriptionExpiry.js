@@ -134,8 +134,21 @@ async function nettoyerHistoriqueLiensExpires(now = new Date()) {
   const clients = await prisma.linkAccessClient.deleteMany({
     where: { subscriptionOrderId: { in: ids } },
   });
-  const liens = await prisma.linkAccessLink.deleteMany({
+  // Les liens rangés sous un compte restent en place : ils redeviennent
+  // disponibles pour un prochain abonné quand la période payée se termine.
+  const liensReliberes = await prisma.linkAccessLink.updateMany({
     where: {
+      accountId: { not: null },
+      status: "envoyé",
+      currentOrderId: { in: ids },
+    },
+    data: { status: "disponible", currentOrderId: null, claimedAt: null },
+  });
+  // Les anciennes lignes sans compte restent des liens à usage unique et leur
+  // historique est effacé à l'expiration comme avant.
+  const liensSupprimes = await prisma.linkAccessLink.deleteMany({
+    where: {
+      accountId: null,
       status: "envoyé",
       currentOrderId: { in: ids },
     },
@@ -143,7 +156,8 @@ async function nettoyerHistoriqueLiensExpires(now = new Date()) {
   return {
     commandes: ids.length,
     clientsSupprimes: clients.count,
-    liensSupprimes: liens.count,
+    liensSupprimes: liensSupprimes.count,
+    liensReliberes: liensReliberes.count,
   };
 }
 
