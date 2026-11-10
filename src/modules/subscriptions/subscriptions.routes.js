@@ -23,6 +23,7 @@ const {
   addPoolLink,
   updatePoolLink,
   deletePoolLink,
+  deletePoolLinkHistory,
   getLinkClients,
   addLinkClient,
   deleteLinkClient,
@@ -112,6 +113,7 @@ router.get("/admin/plans/:planId/pool-links", isAdmin, getPoolLinks);
 router.post("/admin/plans/:planId/pool-links", isAdmin, addPoolLink);
 router.patch("/admin/pool-links/:id", isAdmin, updatePoolLink);
 router.delete("/admin/pool-links/:id", isAdmin, deletePoolLink);
+router.delete("/admin/pool-links/:id/history", isAdmin, deletePoolLinkHistory);
 
 // ── Public — APRÈS les routes admin ──────────────────────────────────────────
 router.get("/", getServices);
