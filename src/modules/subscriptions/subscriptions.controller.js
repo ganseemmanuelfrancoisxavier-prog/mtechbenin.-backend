@@ -751,7 +751,8 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
         planId,
         subOrder?.id || null,
         plan.aVie === true,
-        plan.linkAccessMode === "account_slots" ||\n          (plan.linkAccessMode == null && (plan.service?.slug === "apple-music" || /apple music/i.test(plan.service?.name || ""))),
+        plan.linkAccessMode === "account_slots" ||
+          (plan.linkAccessMode == null && (plan.service?.slug === "apple-music" || /apple music/i.test(plan.service?.name || ""))),
       );
 
       if (lienReserve) {
