@@ -311,6 +311,8 @@ model SubscriptionPlan {
   aVie           Boolean  @default(false)
   // Image unique envoyée avec tous les liens de cette formule link_access.
   linkImageUrl   String?
+  // Mode de stock des liens : lien unique, ou compte contenant cinq emplacements.
+  linkAccessMode String   @default("single")
   // Avantages de la formule, une ligne par puce, affichés tels quels au
   // client sur la fiche du service. Une liste plutôt qu'un texte unique :
   // l'admin les saisit ligne à ligne, et le rendu n'a pas à deviner où
