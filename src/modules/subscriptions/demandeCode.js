@@ -49,12 +49,11 @@ function memeNumero(a, b) {
   return court.length >= CHIFFRES_SIGNIFICATIFS && long.endsWith(court);
 }
 
-// Le numéro de la boutique sert aussi au service client. Le bot ne réagit donc
-// qu'à un mot exact : « je veux un code » est une conversation, pas une
-// commande, et y répondre automatiquement serait s'immiscer dedans.
+// Le bot accepte « code » seul ou dans une phrase (par exemple « je veux mon code »).
+// On exige le mot entier pour ne pas réagir à des mots comme « décoder ».
 function motCleDemande(texte) {
   if (!texte) return false;
-  return String(texte).trim().toLowerCase() === "code";
+  return /\bcode\b/i.test(String(texte));
 }
 
 // La demande valide qui fait foi. « Valide » veut dire : pas encore servie, et
