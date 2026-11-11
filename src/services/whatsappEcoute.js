@@ -33,7 +33,7 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
     await whatsapp.sendMessageToJid(
       adresse,
       [
-        `Pour vérifier votre abonnement, envoyez le numéro utilisé lors de la souscription.`,
+        `Pour vérifier votre abonnement, envoyez nous le numéro utilisé lors de la souscription.`,
         `Exemple : +229 97 00 00 00`,
         `Vous avez 5 minutes. Le numéro peut être différent de celui de ce WhatsApp.`,
       ].join("\n"),
