@@ -1215,6 +1215,7 @@ async function deleteService(req, res) {
       if (planIds.length) {
         await tx.linkAccessClient.deleteMany({ where: { planId: { in: planIds } } });
         await tx.linkAccessLink.deleteMany({ where: { planId: { in: planIds } } });
+        await tx.linkAccessAccount.deleteMany({ where: { planId: { in: planIds } } });
       }
       if (profileIds.length) {
         await tx.familyAccount.deleteMany({ where: { id: { in: profileIds } } });
@@ -1549,6 +1550,7 @@ async function supprimerFormuleDeForce(planId) {
 
     const clients = await tx.linkAccessClient.deleteMany({ where: { planId } });
     const liens = await tx.linkAccessLink.deleteMany({ where: { planId } });
+    await tx.linkAccessAccount.deleteMany({ where: { planId } });
     // Les profils survivent : ils portent des identifiants encore valables, et
     // leur rattachement à une formule ne dit plus rien depuis que ceux-ci
     // vivent sur le compte streaming. Détachés, ils restent réattribuables.
@@ -1621,6 +1623,7 @@ async function deletePlan(req, res) {
       // Aucun client de lien n'existe (garde ci-dessus), donc aucun de ces
       // liens n'a jamais été attribué : c'est du stock, pas de l'historique.
       prisma.linkAccessLink.deleteMany({ where: { planId: plan.id } }),
+      prisma.linkAccessAccount.deleteMany({ where: { planId: plan.id } }),
       prisma.familyAccount.updateMany({
         where: { planId: plan.id },
         data: { planId: null },
