@@ -383,16 +383,36 @@ app.get("/api/otp/status", isAdmin, async (req, res) => {
   }
 });
 
-// Lien Apple Music court avec aperçu WhatsApp.
-app.get("/apple-music/:token", async (req, res) => {
+// Page d'invitation avec aperçu et redirection, quel que soit le service Apple.
+app.get(["/apple-music/:token", "/apple-access/:token"], async (req, res) => {
   const token = String(req.params.token || "");
   if (!/^[A-Za-z0-9_-]{14}$/.test(token)) {
     return res.status(404).send("Lien introuvable");
   }
 
   try {
-    const target = await redis.get(`apple-invite:${token}`);
-    if (typeof target !== "string") return res.status(404).send("Lien expiré ou introuvable");
+    const stored = await redis.get(`apple-invite:${token}`);
+    if (stored == null) return res.status(404).send("Lien expiré ou introuvable");
+
+    let target;
+    let serviceName = "Apple Music";
+    if (typeof stored === "string") {
+      try {
+        const parsedStored = JSON.parse(stored);
+        if (parsedStored && typeof parsedStored === "object" && typeof parsedStored.target === "string") {
+          target = parsedStored.target;
+          serviceName = typeof parsedStored.serviceName === "string" ? parsedStored.serviceName : serviceName;
+        } else {
+          target = stored; // anciens liens Apple Music déjà envoyés
+        }
+      } catch {
+        target = stored; // anciens liens Apple Music déjà envoyés
+      }
+    } else if (typeof stored === "object" && typeof stored.target === "string") {
+      target = stored.target;
+      serviceName = typeof stored.serviceName === "string" ? stored.serviceName : serviceName;
+    }
+    if (!target) return res.status(404).send("Lien expiré ou introuvable");
 
     let invite;
     try {
@@ -408,12 +428,20 @@ app.get("/apple-music/:token", async (req, res) => {
       return res.status(404).send("Lien introuvable");
     }
 
-    const urlSure = target
+    serviceName = serviceName.trim().slice(0, 80) || "Apple Music";
+    const isPack = /\bpack\b/i.test(serviceName);
+    const pageTitle = isPack
+      ? `Votre abonnement ${serviceName} est prêt`
+      : `Votre invitation ${serviceName} est prête`;
+    const escapedService = serviceName.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const escapedTitle = pageTitle.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const escapedTarget = target
       .replace(/&/g, "&amp;")
       .replace(/"/g, "&quot;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
-    const previewUrl = `https://mtechbenin.com/apple-music/${token}`;
+    const previewPath = req.path.startsWith("/apple-access/") ? "/apple-access/" : "/apple-music/";
+    const previewUrl = `https://mtechbenin.com${previewPath}${token}`;
     const imageUrl = "https://mtechbenin.com/images/apple-music-invitation.jpg";
     res
       .status(200)
@@ -425,14 +453,14 @@ app.get("/apple-music/:token", async (req, res) => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Apple Music — votre accès est prêt</title>
+<title>${escapedTitle}</title>
 <meta property="og:type" content="website">
-<meta property="og:title" content="Apple Music — votre accès est prêt">
-<meta property="og:description" content="Touchez l’aperçu pour ouvrir votre invitation Apple Music.">
+<meta property="og:title" content="${escapedTitle}">
+<meta property="og:description" content="Touchez l’aperçu pour ouvrir votre ${isPack ? "abonnement" : "invitation"} ${escapedService}.">
 <meta property="og:image" content="${imageUrl}">
 <meta property="og:url" content="${previewUrl}">
 <meta name="twitter:card" content="summary_large_image">
-<meta http-equiv="refresh" content="0;url=${urlSure}">
+<meta http-equiv="refresh" content="0;url=${escapedTarget}">
 <style>
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;padding:20px;background:radial-gradient(ellipse at 50% 0%,#37373d 0%,#19191d 48%,#0c0c0f 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;color:#fff}
@@ -446,15 +474,15 @@ p{margin:0 0 20px;color:#d0d0d5;font-size:15px;line-height:1.5}
 <body>
 <main>
 <div class="content">
-<h1>Votre invitation Apple Music est prête</h1>
+<h1>${escapedTitle}</h1>
 <p>Si la redirection ne démarre pas, touchez le bouton ci-dessous puis patientez que votre page s’ouvre.</p>
-<a class="invitation" href="${urlSure}" rel="noreferrer">Invitation</a>
+<a class="invitation" href="${escapedTarget}" rel="noreferrer">Invitation</a>
 </div>
 </main>
 </body>
 </html>`);
   } catch (err) {
-    logger.warn("Aperçu Apple Music indisponible", { err: err.message });
+    logger.warn("Aperçu Apple indisponible", { err: err.message });
     return res.status(503).send("Service momentanément indisponible");
   }
 });
