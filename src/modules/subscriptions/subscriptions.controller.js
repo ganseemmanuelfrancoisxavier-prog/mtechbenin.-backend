@@ -1365,6 +1365,30 @@ async function updatePlan(req, res) {
     const data = { ...req.body };
     if (typeLien.valeur === undefined) delete data.linkAccessMode;
     else data.linkAccessMode = typeLien.valeur;
+
+    if (data.linkAccessMode !== undefined) {
+      const planActuel = await prisma.subscriptionPlan.findUnique({
+        where: { id: req.params.id },
+        select: {
+          linkAccessMode: true,
+          linkAccounts: { select: { id: true } },
+          poolLinks: { select: { id: true } },
+          linkClients: { select: { id: true } },
+        },
+      });
+      if (!planActuel) return res.status(404).json({ error: "Formule introuvable" });
+      const modeChange = data.linkAccessMode !== planActuel.linkAccessMode;
+      const stockDejaUtilise =
+        planActuel.linkAccounts.length > 0 ||
+        planActuel.poolLinks.length > 0 ||
+        planActuel.linkClients.length > 0;
+      if (modeChange && stockDejaUtilise) {
+        return res.status(409).json({
+          error: "Le type de liens ne peut plus changer après l'ajout de stock ou une vente. Créez une nouvelle formule pour utiliser l'autre type.",
+        });
+      }
+    }
+
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "linkImageUrl")) {
       if (!imageUrlCloudinaryValide(req.body.linkImageUrl)) {
         return res.status(400).json({ error: "Photo invalide — importez une image depuis le panneau." });
