@@ -237,8 +237,24 @@ async function createOrder(req, res) {
 // candidats, mais seule la première écriture rend `count === 1`. La seconde
 // passe au candidat suivant. Ne pas retirer cette garde.
 async function claimLinkAccessLink(planId, currentOrderId = null, reuseWhenEmpty = false, accountOnly = false) {
+  const filtrePlan = {
+    planId,
+    ...(accountOnly ? { accountId: { not: null } } : {}),
+  };
+
+  // Une formule à vie renvoie toujours le premier lien configuré. Chaque
+  // commande garde sa propre copie dans LinkAccessClient ; le lien de stock
+  // reste réutilisable au lieu d'épuiser les invitations une par une.
+  if (reuseWhenEmpty) {
+    const reusable = await prisma.linkAccessLink.findFirst({
+      where: filtrePlan,
+      orderBy: { createdAt: "asc" },
+    });
+    if (reusable) return reusable;
+  }
+
   const candidates = await prisma.linkAccessLink.findMany({
-    where: { planId, status: "disponible", ...(accountOnly ? { accountId: { not: null } } : {}) },
+    where: { ...filtrePlan, status: "disponible" },
     orderBy: { createdAt: "asc" },
   });
   for (const candidate of candidates) {
@@ -253,14 +269,6 @@ async function claimLinkAccessLink(planId, currentOrderId = null, reuseWhenEmpty
     if (result.count === 1) return candidate;
   }
 
-  // Les offres à vie peuvent réutiliser leurs liens une fois la réserve vide.
-  // On ne change pas le propriétaire de l'entrée d'historique déjà attribuée.
-  if (reuseWhenEmpty) {
-    return prisma.linkAccessLink.findFirst({
-      where: { planId, status: "envoyé", ...(accountOnly ? { accountId: { not: null } } : {}) },
-      orderBy: { createdAt: "asc" },
-    });
-  }
   return null;
 }
 
