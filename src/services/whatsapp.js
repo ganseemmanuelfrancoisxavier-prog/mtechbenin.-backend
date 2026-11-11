@@ -331,7 +331,8 @@ async function sendSubscriptionNotifToAdmin({
 
 // ── Lien d'accès → CLIENT ─────────────────────────────────────────────────────
 async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link, imageUrl = null }) {
-if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
+  const appleServiceName = String(serviceName || "Apple").trim().slice(0, 80) || "Apple";
+  if (/apple|pack\s+apple/i.test(appleServiceName)) {
     let appleLink = link;
     let linkPreview = null;
 
@@ -342,15 +343,19 @@ if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
         parsed.hostname !== "setup.icloud.com" ||
         parsed.pathname !== "/family/messages"
       ) {
-        throw new Error("Lien Apple Music inattendu");
+        throw new Error("Lien d’invitation Apple inattendu");
       }
 
       const token = randomBytes(10).toString("base64url");
-      await redis.set(`apple-invite:${token}`, link, { ex: 60 * 60 * 24 * 365 });
+      await redis.set(
+        `apple-invite:${token}`,
+        JSON.stringify({ target: link, serviceName: appleServiceName }),
+        { ex: 60 * 60 * 24 * 365 },
+      );
       const baseUrl = String(
         process.env.APPLE_MUSIC_LINK_BASE_URL || "https://mtechbenin.com",
       ).replace(/\/+$/, "");
-      appleLink = `${baseUrl}/apple-music/${token}`;
+      appleLink = `${baseUrl}/apple-access/${token}`;
 
       if (!imageUrl) {
         const previewImageUrl = "https://www.mtechbenin.com/images/categories/abonnements.jpg";
@@ -359,24 +364,32 @@ if (/apple[\s-]*music/i.test(String(serviceName || ""))) {
         const thumbnail = Buffer.from(await response.arrayBuffer());
         if (thumbnail.length > 200_000) throw new Error("Image aperçu trop volumineuse");
 
+        const isPack = /\bpack\b/i.test(appleServiceName);
+        const accessTitle = isPack
+          ? `Votre abonnement ${appleServiceName} est prêt`
+          : `Votre invitation ${appleServiceName} est prête`;
         linkPreview = {
           "canonical-url": appleLink,
           "matched-text": appleLink,
-          title: "Apple Music — votre accès est prêt",
-          description: "Touchez l’aperçu pour ouvrir votre invitation Apple Music.",
+          title: accessTitle,
+          description: `Touchez l’aperçu pour ouvrir votre ${isPack ? "abonnement" : "invitation"} ${appleServiceName}.`,
           jpegThumbnail: thumbnail,
           originalThumbnailUrl: previewImageUrl,
         };
       }
     } catch (err) {
-      logger.warn("Aperçu Apple Music indisponible — envoi du lien direct", {
+      logger.warn("Aperçu Apple indisponible — envoi du lien direct", {
         err: err.message,
       });
       appleLink = link;
     }
 
+    const isPack = /\bpack\b/i.test(appleServiceName);
+    const accessTitle = isPack
+      ? `Votre abonnement ${appleServiceName} est prêt`
+      : `Votre invitation ${appleServiceName} est prête`;
     const caption = assembler([
-      gras("Votre accès Apple Music est prêt"),
+      gras(accessTitle),
       "Touchez l'aperçu ci-dessus pour y accéder.",
       imageUrl ? appleLink : null,
       ``,
