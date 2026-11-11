@@ -385,12 +385,17 @@ async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link, i
     }
 
     const isPack = /\bpack\b/i.test(appleServiceName);
-    const accessTitle = isPack
-      ? `Votre abonnement ${appleServiceName} est prêt`
-      : `Votre invitation ${appleServiceName} est prête`;
+    const isAppleMusic = /apple\s*music/i.test(appleServiceName);
+    const accessTitle = isAppleMusic
+      ? "Votre accès Apple Music est prêt"
+      : isPack
+        ? `Votre abonnement ${appleServiceName} est prêt`
+        : `Votre invitation ${appleServiceName} est prête`;
     const caption = assembler([
       gras(accessTitle),
-      "Touchez l'aperçu ci-dessus pour y accéder.",
+      isAppleMusic
+        ? "Cliquez sur le lien ci-dessus pour y accéder."
+        : "Touchez l'aperçu ci-dessus pour y accéder.",
       imageUrl ? appleLink : null,
       ``,
       gras("L'équipe MTECHBENIN"),
