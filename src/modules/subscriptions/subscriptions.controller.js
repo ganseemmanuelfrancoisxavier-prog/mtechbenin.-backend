@@ -751,7 +751,8 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
         planId,
         subOrder?.id || null,
         plan.aVie === true,
-        plan.service?.slug === "apple-music" || /apple music/i.test(plan.service?.name || ""),
+        plan.linkAccessMode === "account_slots" ||
+          (plan.linkAccessMode == null && (plan.service?.slug === "apple-music" || /apple music/i.test(plan.service?.name || ""))),
       );
 
       if (lienReserve) {
@@ -1300,8 +1301,22 @@ function imageUrlCloudinaryValide(raw) {
     image.pathname.includes("/image/upload/");
 }
 
+const TYPES_LIEN_ACCESS = new Set(["single", "account_slots"]);
+function normaliserTypeLienAccess(value) {
+  if (value === undefined || value === null || value === "") {
+    return { ok: true, valeur: undefined };
+  }
+  if (!TYPES_LIEN_ACCESS.has(value)) {
+    return { ok: false, erreur: "Type de lien invalide" };
+  }
+  return { ok: true, valeur: value };
+}
+
 async function createPlan(req, res) {
   try {
+    const typeLien = normaliserTypeLienAccess(req.body.linkAccessMode);
+    if (!typeLien.ok) return res.status(400).json({ error: typeLien.erreur });
+
     const desc = normaliserDescription(req.body.description);
     if (!desc.ok) return res.status(400).json({ error: desc.erreur });
 
@@ -1323,6 +1338,7 @@ async function createPlan(req, res) {
     const plan = await prisma.subscriptionPlan.create({
       data: {
         ...req.body,
+        linkAccessMode: typeLien.valeur ?? "single",
         linkImageUrl: req.body.linkImageUrl ? String(req.body.linkImageUrl).trim() : null,
         // Apres l'etalement : les valeurs normalisees doivent primer sur celles
         // du corps, sinon le `aVie` brut du panel les remettrait telles quelles.
@@ -1340,10 +1356,39 @@ async function createPlan(req, res) {
 
 async function updatePlan(req, res) {
   try {
+    const typeLien = normaliserTypeLienAccess(req.body.linkAccessMode);
+    if (!typeLien.ok) return res.status(400).json({ error: typeLien.erreur });
+
     const desc = normaliserDescription(req.body.description);
     if (!desc.ok) return res.status(400).json({ error: desc.erreur });
 
     const data = { ...req.body };
+    if (typeLien.valeur === undefined) delete data.linkAccessMode;
+    else data.linkAccessMode = typeLien.valeur;
+
+    if (data.linkAccessMode !== undefined) {
+      const planActuel = await prisma.subscriptionPlan.findUnique({
+        where: { id: req.params.id },
+        select: {
+          linkAccessMode: true,
+          linkAccounts: { select: { id: true } },
+          poolLinks: { select: { id: true } },
+          linkClients: { select: { id: true } },
+        },
+      });
+      if (!planActuel) return res.status(404).json({ error: "Formule introuvable" });
+      const modeChange = data.linkAccessMode !== planActuel.linkAccessMode;
+      const stockDejaUtilise =
+        planActuel.linkAccounts.length > 0 ||
+        planActuel.poolLinks.length > 0 ||
+        planActuel.linkClients.length > 0;
+      if (modeChange && stockDejaUtilise) {
+        return res.status(409).json({
+          error: "Le type de liens ne peut plus changer après l'ajout de stock ou une vente. Créez une nouvelle formule pour utiliser l'autre type.",
+        });
+      }
+    }
+
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "linkImageUrl")) {
       if (!imageUrlCloudinaryValide(req.body.linkImageUrl)) {
         return res.status(400).json({ error: "Photo invalide — importez une image depuis le panneau." });
