@@ -7,7 +7,7 @@ const logger = require("../utils/logger");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { PrismaClient } = require("@prisma/client");
+const prisma = require("./prisma");
 const {
   extraireAdressage,
   messageTropAncien,
@@ -28,8 +28,6 @@ function getBaileys() {
   }
   return baileysPromise;
 }
-
-const prisma = new PrismaClient();
 
 const SESSION_PATH =
   process.env.WHATSAPP_SESSION_PATH ||
