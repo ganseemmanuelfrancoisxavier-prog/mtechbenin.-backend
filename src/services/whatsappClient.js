@@ -4,6 +4,7 @@ const {
 } = require("@hapi/boom");
 const QRCode = require("qrcode");
 const logger = require("../utils/logger");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { PrismaClient } = require("@prisma/client");
@@ -47,6 +48,7 @@ const STABILITE_AVANT_REARMEMENT_MS = 5 * 60 * 1000;
 let isReady = false;
 let _saveTimer = null;
 let _derniereEmpreinte = null;
+let _initialisationEnCours = null;
 let gestionnaireMessages = null;
 let adressageJournalise = false;
 
@@ -86,13 +88,23 @@ async function saveSessionToDb() {
   try {
     if (!fs.existsSync(SESSION_PATH)) return;
 
-    const files = fs.readdirSync(SESSION_PATH);
+    const files = fs.readdirSync(SESSION_PATH).sort();
     const data = {};
     const nouveauxIllisibles = [];
+    const empreinte = crypto.createHash("sha256");
+    let octets = 0;
 
     for (const file of files) {
       const filePath = path.join(SESSION_PATH, file);
       const content = fs.readFileSync(filePath, "utf-8");
+
+      // Hacher chaque fichier évite de garder en mémoire une deuxième copie
+      // complète de la session sous forme de chaîne JSON.
+      empreinte.update(file, "utf-8");
+      empreinte.update("\0");
+      empreinte.update(content, "utf-8");
+      empreinte.update("\0");
+      octets += Buffer.byteLength(content, "utf-8");
 
       try {
         data[file] = JSON.parse(content);
@@ -123,9 +135,9 @@ async function saveSessionToDb() {
       return;
     }
 
-    const empreinte = JSON.stringify(data);
+    const empreinteSession = empreinte.digest("hex");
 
-    if (empreinte === _derniereEmpreinte) {
+    if (empreinteSession === _derniereEmpreinte) {
       return;
     }
 
@@ -136,11 +148,11 @@ async function saveSessionToDb() {
       select: { id: true },
     });
 
-    _derniereEmpreinte = empreinte;
+    _derniereEmpreinte = empreinteSession;
 
     logger.info(
       `Session WhatsApp sauvegardée dans Supabase (${Object.keys(data).length} fichiers, ` +
-      `${(empreinte.length / 1048576).toFixed(1)} Mo)`
+      `${(octets / 1048576).toFixed(1)} Mo)`
     );
   } catch (err) {
     logger.error("Erreur sauvegarde session Supabase", {
@@ -293,7 +305,6 @@ async function loadSessionFromDb() {
     }
 
     const data = record.data || {};
-    const octetsLus = JSON.stringify(data).length;
     const creds = data["creds.json"];
 
     if (!creds || typeof creds !== "object") {
@@ -309,24 +320,56 @@ async function loadSessionFromDb() {
       return false;
     }
 
+    // Ces clés ne servent qu'au déchiffrement des statuts WhatsApp, que le
+    // bot ne lit pas. Les retirer AVANT de restaurer Baileys évite de charger
+    // les milliers d'entrées inutiles à chaque redémarrage OOM.
+    const clesStatut = fichiersElaguables(Object.keys(data));
+    for (const file of clesStatut) delete data[file];
+
+    if (clesStatut.length > 0) {
+      try {
+        await prisma.whatsAppSession.update({
+          where: { id: "main" },
+          data: { data },
+          select: { id: true },
+        });
+        logger.info(
+          `Session WhatsApp allégée avant restauration (${clesStatut.length} clés de statuts retirées)`
+        );
+      } catch (err) {
+        logger.warn("Session allégée en mémoire, sauvegarde Supabase différée", {
+          err: err.message,
+        });
+      }
+    }
+
     if (!fs.existsSync(SESSION_PATH)) {
       fs.mkdirSync(SESSION_PATH, { recursive: true });
     }
 
-    for (const [file, content] of Object.entries(data)) {
-      const filePath = path.join(SESSION_PATH, file);
+    const files = Object.keys(data).sort();
+    const empreinte = crypto.createHash("sha256");
+    let octetsLus = 0;
 
-      fs.writeFileSync(
-        filePath,
-        typeof content === "string"
-          ? content
-          : JSON.stringify(content),
-        "utf-8"
-      );
+    for (const file of files) {
+      const content = data[file];
+      const filePath = path.join(SESSION_PATH, file);
+      const serialized =
+        typeof content === "string" ? content : JSON.stringify(content);
+
+      empreinte.update(file, "utf-8");
+      empreinte.update("\0");
+      empreinte.update(serialized, "utf-8");
+      empreinte.update("\0");
+      octetsLus += Buffer.byteLength(serialized, "utf-8");
+
+      fs.writeFileSync(filePath, serialized, "utf-8");
     }
 
+    _derniereEmpreinte = empreinte.digest("hex");
+
     logger.info(
-      `Session WhatsApp chargée depuis Supabase (${Object.keys(data).length} fichiers, ` +
+      `Session WhatsApp chargée depuis Supabase (${files.length} fichiers, ` +
       `${(octetsLus / 1048576).toFixed(1)} Mo lus)`
     );
 
@@ -402,6 +445,18 @@ async function destroyAndClean() {
 }
 
 async function initWhatsApp() {
+  if (sock) return sock;
+  if (_initialisationEnCours) return _initialisationEnCours;
+
+  _initialisationEnCours = initialiserWhatsApp();
+  try {
+    return await _initialisationEnCours;
+  } finally {
+    _initialisationEnCours = null;
+  }
+}
+
+async function initialiserWhatsApp() {
   try {
     // CORRECTION : Baileys est chargé par import() dynamique.
     const {
@@ -426,7 +481,7 @@ async function initWhatsApp() {
       `Baileys version WA : ${version.join(".")}`
     );
 
-    sock = makeWASocket({
+    const activeSocket = makeWASocket({
       version,
       auth: state,
       printQRInTerminal: false,
@@ -437,13 +492,14 @@ async function initWhatsApp() {
       keepAliveIntervalMs: 30_000,
       markOnlineOnConnect: true,
     });
+    sock = activeSocket;
 
-    sock.ev.on("creds.update", async () => {
+    activeSocket.ev.on("creds.update", async () => {
       await saveCreds();
       scheduleSaveSession();
     });
 
-    sock.ev.on("connection.update", async (update) => {
+    activeSocket.ev.on("connection.update", async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
@@ -493,6 +549,10 @@ async function initWhatsApp() {
       }
 
       if (connection === "close") {
+        // Une ancienne socket fermée après un reset ne doit pas lancer une
+        // seconde boucle de reconnexion ni remplacer la socket courante.
+        if (sock !== activeSocket) return;
+        sock = null;
         isReady = false;
 
         const statusCode =
@@ -549,7 +609,7 @@ async function initWhatsApp() {
       }
     });
 
-    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    activeSocket.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify" || !gestionnaireMessages) {
         return;
       }
@@ -618,7 +678,7 @@ async function initWhatsApp() {
       }
     });
 
-    return sock;
+    return activeSocket;
   } catch (err) {
     logger.error("Erreur init WhatsApp Baileys", {
       err: err.message,
