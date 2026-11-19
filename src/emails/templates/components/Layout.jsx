@@ -19,7 +19,7 @@ export function Layout({ children, preview }) {
             <Text style={footer}>
               Pour toute question, répondez à cet email ou contactez-nous sur WhatsApp.
             </Text>
-            <Text style={footer}>MTECHBENIN — Votre boutique tech au Bénin</Text>
+            <Text style={footer}>MTECHBENIN — Le futur de la technologie commence ici</Text>
           </Section>
         </Container>
       </Body>
