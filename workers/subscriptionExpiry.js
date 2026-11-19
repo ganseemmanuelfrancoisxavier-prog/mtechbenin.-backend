@@ -6,7 +6,7 @@
 // redémarre.
 //
 // La seconde moitié (`envoyerRappelsDus`, `demarrerRappels`) touche la base et
-// le service d'e-mails. Ses dépendances sont volontairement requises à
+// les services d'e-mail et WhatsApp. Ses dépendances sont volontairement requises à
 // l'intérieur des fonctions, et non en tête de fichier : c'est ce qui permet
 // aux tests de charger le module et d'exercer les fonctions pures sans base de
 // données ni clé Resend.
@@ -170,6 +170,7 @@ async function envoyerRappelsDus(now = new Date()) {
   const prisma = require("../src/services/prisma");
   const logger = require("../src/utils/logger");
   const { sendSubscriptionExpiryReminder } = require("../src/services/email");
+  const whatsapp = require("../src/services/whatsapp");
 
   if (!estDansLaFenetreDEnvoi(now)) {
     return { examines: 0, envoyes: 0, ignores: 0, horsFenetre: true };
@@ -183,14 +184,21 @@ async function envoyerRappelsDus(now = new Date()) {
   const candidats = await prisma.subscriptionOrder.findMany({
     where: {
       status: "CONFIRMED",
-      reminderSentAt: null,
-      clientEmail: { not: null },
+      OR: [
+        { reminderSentAt: null, clientEmail: { not: null } },
+        {
+          reminderWhatsappSentAt: null,
+          clientWhatsapp: { not: null },
+        },
+      ],
       expiresAt: { not: null, gte: debut, lte: fin },
     },
     include: { service: true, plan: true },
   });
 
   let envoyes = 0;
+  let emailsEnvoyes = 0;
+  let whatsappEnvoyes = 0;
   let ignores = 0;
 
   for (const o of candidats) {
@@ -203,59 +211,82 @@ async function envoyerRappelsDus(now = new Date()) {
         continue;
       }
 
-      // On revendique la ligne AVANT d'envoyer, au lieu d'horodater après.
-      // Avant ce correctif : envoi puis écriture. Si l'écriture échouait (le
-      // pooler Supabase du plan gratuit rend régulièrement « Timed out
-      // fetching a new connection from the connection pool ») ou si le
-      // process redémarrait entre les deux, la ligne restait candidate et le
-      // passage suivant (6 h plus tard) renvoyait le même e-mail. On passe
-      // donc d'un « au moins une fois » (risque de doublon) à un « au plus
-      // une fois » (risque de rappel manqué, mais tracé dans le journal).
-      // Pour un message commercial, l'ennui d'un doublon est pire que celui
-      // d'un rappel manqué signalé dans le journal.
-      const revendication = await prisma.subscriptionOrder.updateMany({
-        where: { id: o.id, reminderSentAt: null },
-        data: { reminderSentAt: new Date() },
-      });
-      if (revendication.count !== 1) {
-        // Déjà pris en charge ailleurs (autre passage, autre instance) : rien
-        // à faire ici.
-        continue;
-      }
-
-      const ok = await sendSubscriptionExpiryReminder({
-        clientEmail: o.clientEmail,
+      const rappel = {
         clientName: o.clientName,
         serviceName: o.service?.name || "votre service",
         planLabel: o.plan?.label || "",
         expiresAt: o.expiresAt,
         serviceSlug: o.service?.slug,
-      });
-      if (!ok) {
-        // L'envoi a échoué : on relâche la revendication pour que le prochain
-        // passage réessaie, tant que la date reste dans la fenêtre.
+      };
+
+      // Chaque canal a son propre horodatage : un échec WhatsApp peut être
+      // retenté sans renvoyer l'e-mail déjà livré, et inversement.
+      const envoyerCanal = async (champ, envoyer) => {
+        const revendication = await prisma.subscriptionOrder.updateMany({
+          where: { id: o.id, [champ]: null },
+          data: { [champ]: new Date() },
+        });
+        if (revendication.count !== 1) return false;
+
+        let ok = false;
+        try {
+          ok = await envoyer();
+        } catch (errEnvoi) {
+          logger.error(`Échec du rappel d'expiration (${champ})`, {
+            subOrderId: o.id,
+            err: errEnvoi.message,
+          });
+        }
+        if (ok) return true;
+
+        // Libère uniquement le canal qui a échoué pour réessayer au prochain
+        // passage, sans toucher à l'autre canal.
         try {
           await prisma.subscriptionOrder.update({
             where: { id: o.id },
-            data: { reminderSentAt: null },
+            data: { [champ]: null },
           });
-          logger.warn("Rappel d'expiration non envoyé — revendication relâchée, sera retenté", {
+          logger.warn(`Rappel d'expiration non envoyé (${champ}) — sera retenté`, {
             subOrderId: o.id,
           });
         } catch (errLibere) {
-          // La remise à zéro elle-même a échoué : la ligne reste marquée
-          // comme « rappel envoyé » sans qu'aucun e-mail soit parti. C'est le
-          // moindre mal (un rappel manqué plutôt qu'un doublon), mais ça doit
-          // rester visible dans le journal pour qu'un admin puisse rattraper
-          // la situation manuellement.
-          logger.error("Échec de la libération de la revendication après un envoi raté — ligne bloquée sans rappel envoyé", {
+          logger.error(`Échec de libération du rappel (${champ})`, {
             subOrderId: o.id,
             err: errLibere.message,
           });
         }
-        continue;
+        return false;
+      };
+
+      let rappelEnvoye = false;
+      if (o.clientEmail && !o.reminderSentAt) {
+        const ok = await envoyerCanal("reminderSentAt", () =>
+          sendSubscriptionExpiryReminder({
+            clientEmail: o.clientEmail,
+            ...rappel,
+          }),
+        );
+        if (ok) {
+          emailsEnvoyes++;
+          rappelEnvoye = true;
+        }
       }
-      envoyes++;
+
+      if (o.clientWhatsapp && !o.reminderWhatsappSentAt) {
+        const ok = await envoyerCanal("reminderWhatsappSentAt", () =>
+          whatsapp.sendSubscriptionExpiryReminderWhatsapp({
+            clientWhatsapp: o.clientWhatsapp,
+            ...rappel,
+          }),
+        );
+        if (ok) {
+          whatsappEnvoyes++;
+          rappelEnvoye = true;
+        }
+      }
+
+      if (rappelEnvoye) envoyes++;
+      else ignores++;
     } catch (err) {
       logger.error("Erreur traitement rappel d'expiration — passage au suivant", {
         subOrderId: o.id,
@@ -265,9 +296,17 @@ async function envoyerRappelsDus(now = new Date()) {
   }
 
   if (envoyes > 0 || candidats.length > 0) {
-    logger.info(`Rappels d'expiration : ${envoyes} envoyé(s) sur ${candidats.length} candidat(s)`);
+    logger.info(
+      `Rappels d'expiration : ${emailsEnvoyes} e-mail(s), ${whatsappEnvoyes} WhatsApp sur ${candidats.length} candidat(s)`,
+    );
   }
-  return { examines: candidats.length, envoyes, ignores };
+  return {
+    examines: candidats.length,
+    envoyes,
+    emailsEnvoyes,
+    whatsappEnvoyes,
+    ignores,
+  };
 }
 
 function demarrerRappels() {

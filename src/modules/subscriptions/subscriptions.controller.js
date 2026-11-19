@@ -3503,6 +3503,7 @@ async function setOrderExpiry(req, res) {
     const data = { expiresAt: valeur };
     if (dateChangee) {
       data.reminderSentAt = null;
+      data.reminderWhatsappSentAt = null;
     }
 
     const order = await prisma.subscriptionOrder.update({
