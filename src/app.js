@@ -42,6 +42,7 @@ const whatsapp = require("./services/whatsapp");
 const { startImapBot, getBotStatus } = require("../workers/imapBot");
 const { auditAccountCoverage } = require("../workers/otpRouting");
 const { demarrerRappels } = require("../workers/subscriptionExpiry");
+const { demarrerProgressionCommandes } = require("../workers/orderProgression");
 const { isAdmin } = require("./middleware/auth");
 
 // Routes
@@ -608,6 +609,11 @@ async function startServer() {
     demarrerRappels();
   } catch (err) {
     logger.error("Erreur démarrage des rappels d'expiration", { err: err.message });
+  }
+  try {
+    demarrerProgressionCommandes();
+  } catch (err) {
+    logger.error("Erreur démarrage de la progression des commandes", { err: err.message });
   }
 }
 
