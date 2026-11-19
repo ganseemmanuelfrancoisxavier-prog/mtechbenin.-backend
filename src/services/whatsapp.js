@@ -235,6 +235,23 @@ async function sendOrderConfirmToClient(order) {
   return sendMessage(order.guestWhatsapp, message);
 }
 
+// ── Abonnement payé sans place disponible → CLIENT ────────────────────────────
+async function sendSubscriptionStockPendingToClient({ clientWhatsapp, reference, amount }) {
+  const montant = Number(amount || 0).toLocaleString("fr-FR");
+  const message = assembler([
+    ENTETE,
+    `` ,
+    gras(
+      `Votre commande ${reference} confirmée — ${montant} FCFA. ` +
+        `Votre accès est en préparation et vous parviendra dans les plus brefs délais`,
+    ),
+    `` ,
+    SIGNATURE,
+  ]);
+
+  return sendMessage(clientWhatsapp, message);
+}
+
 // ── Mise à jour statut → CLIENT ───────────────────────────────────────────────
 async function sendStatusUpdateToClient(order, statusLabel) {
   const message = assembler([
@@ -393,9 +410,7 @@ async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link, i
         : `Votre invitation ${appleServiceName} est prête`;
     const caption = assembler([
       gras(accessTitle),
-      isAppleMusic
-        ? "Cliquez sur le lien ci-dessus pour y accéder."
-        : "Touchez l'aperçu ci-dessus pour y accéder.",
+      "Cliquez sur le lien ci-dessus pour y accéder.",
       imageUrl ? appleLink : null,
       ``,
       gras("L'équipe MTECHBENIN"),
@@ -846,6 +861,7 @@ module.exports = {
   sendMessageToJid,
   sendNewOrderToAdmin,
   sendOrderConfirmToClient,
+  sendSubscriptionStockPendingToClient,
   sendStatusUpdateToClient,
   sendSubscriptionCredentials,
   sendSubscriptionCredentialsFallback,
