@@ -50,6 +50,17 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
     if (demande.expireLe <= maintenant) demandesNumero.delete(jid);
   }
 
+  // Redirige les questions vers le numéro principal. L’état d’une demande OTP
+  // en cours est conservé : le client peut toujours envoyer ensuite le numéro
+  // de souscription demandé par le bot.
+  if (/[?？]/u.test(String(texte || ""))) {
+    await whatsapp.sendMessageToJid(
+      adresse,
+      "Pour toute question, demande d’explication ou pour découvrir nos contenus, contactez directement notre numéro principal : +229 60 50 63 20.",
+    );
+    return { traite: true, raison: "question-redirigee" };
+  }
+
   if (motCleDemande(texte)) {
     const numeroDemandeur = normaliserNumero(numero);
     if (numeroDemandeur) await redis.del(CLE_ATTENTE_WEB(numeroDemandeur));
