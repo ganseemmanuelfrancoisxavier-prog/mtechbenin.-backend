@@ -243,7 +243,7 @@ async function sendSubscriptionStockPendingToClient({ clientWhatsapp, reference,
     `` ,
     gras(
       `Votre commande ${reference} confirmée — ${montant} FCFA. ` +
-        `Votre commande est en préparation. Un de nos livreurs vous contactera dans les plus brefs délais.`,
+        `Votre accès est en préparation et vous parviendra dans les plus brefs délais`,
     ),
     `` ,
     SIGNATURE,
