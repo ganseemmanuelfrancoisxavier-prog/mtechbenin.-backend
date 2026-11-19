@@ -75,7 +75,7 @@ function layout(preview, body) {
           <p style="color:#6E6E73;font-size:12px;margin:4px 0;">
             Pour toute question, répondez à cet email ou contactez-nous sur WhatsApp.
           </p>
-          <p style="color:#6E6E73;font-size:12px;margin:4px 0;">MTECHBENIN — Votre boutique tech au Bénin</p>
+          <p style="color:#6E6E73;font-size:12px;margin:4px 0;">MTECHBENIN — Le futur de la technologie commence ici</p>
         </td></tr>
       </table>
     </td></tr>
