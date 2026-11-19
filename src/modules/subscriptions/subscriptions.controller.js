@@ -364,6 +364,13 @@ async function assignSubscriptionAfterPayment(subOrderId) {
         });
         return;
       }
+      await whatsapp.sendSubscriptionStockPendingToClient({
+        clientWhatsapp: subOrder.clientWhatsapp,
+        reference: subOrder.sourceOrderRef || "votre commande",
+        amount: subOrder.amount,
+      }).catch((err) =>
+        logger.warn("Message client stock abonnement épuisé non envoyé", { err: err.message }),
+      );
       await whatsapp.sendStockEpuiseAlert({
         serviceName: subOrder.service.name,
         clientName: subOrder.clientName,
@@ -648,6 +655,13 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
         });
         return;
       }
+      await whatsapp.sendSubscriptionStockPendingToClient({
+        clientWhatsapp: order.guestWhatsapp,
+        reference: order.reference || "votre commande",
+        amount: matchingItem?.totalPrice ?? order.total,
+      }).catch((err) =>
+        logger.warn("Message client stock abonnement épuisé non envoyé", { err: err.message }),
+      );
       await whatsapp.sendStockEpuiseAlert({
         serviceName: plan.service.name,
         clientName: order.guestName,
@@ -750,6 +764,7 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
 
     let lienReserve = null;
     let statut = "en_attente";
+    let reservationErreur = false;
     // Vrai dès qu'un lien a été consommé sans que sa trace ait pu être écrite :
     // l'incident remplace alors la notification de vente normale, pour qu'une
     // seule notification admin parte par vente et qu'elle dise la vérité.
@@ -857,6 +872,7 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
 
         incidentSignale = true;
       } else {
+        reservationErreur = true;
         // La réservation elle-même a échoué : aucun lien n'est sorti de la
         // réserve. La ligne cliente existe déjà, vide et « en_attente » — le
         // rattrapage manuel prend le relais et la notification de vente
@@ -872,6 +888,16 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
     // Une seule notification admin par vente. Son libellé suit ce qui s'est
     // réellement passé : lien parti tout seul → simple information ; lien non
     // attribué ou non délivré → action requise dans le panel.
+    if (!lienReserve && !reservationErreur) {
+      await whatsapp.sendSubscriptionStockPendingToClient({
+        clientWhatsapp: order.guestWhatsapp,
+        reference: order.reference || "votre commande",
+        amount: matchingItem?.totalPrice ?? order.total,
+      }).catch((err) =>
+        logger.warn("Message client réserve de liens épuisée non envoyé", { err: err.message }),
+      );
+    }
+
     if (!incidentSignale) {
       await whatsapp.sendLinkAccessNotifToAdmin({
         serviceName: plan.service.name,
