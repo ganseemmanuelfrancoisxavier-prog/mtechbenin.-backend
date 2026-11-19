@@ -21,7 +21,8 @@ async function demanderNumeroSouscription(numeroBrut) {
   const envoye = await whatsapp.sendMessage(
     numero,
     [
-      "Bonjour. Pour vérifier votre abonnement Netflix, répondez à ce message avec le numéro utilisé lors de votre souscription.",
+      "Bonjour.",
+      "Pour vérifier votre abonnement Netflix, écrivez dans cette discussion le numéro utilisé lors de votre souscription.",
       "Après nous avoir envoyé ce numéro, reconnectez-vous à Netflix et demandez un nouveau code. Nous vous le transmettrons ici dès sa réception.",
       "Vous avez 5 minutes pour nous envoyer le numéro de souscription.",
     ].join("\n"),
