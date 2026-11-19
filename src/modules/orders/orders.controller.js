@@ -1,6 +1,5 @@
 const prisma = require("../../services/prisma");
 const logger = require("../../utils/logger");
-const whatsapp = require("../../services/whatsapp");
 const { upsertClient } = require("../clients/clients.controller");
 const { incrementUsed } = require("../coupons/coupons.controller");
 const { computeUnitPrice } = require("../products/pricing");
@@ -311,20 +310,6 @@ async function updateStatus(req, res) {
       data: { status: normalized },
       include: { items: true },
     });
-
-    // Notif WhatsApp client si statut important
-    const notifStatuses = ["CONFIRMED", "PREPARING", "SHIPPED", "DELIVERED"];
-    if (notifStatuses.includes(normalized)) {
-      const labels = {
-        CONFIRMED: "✅ Paiement confirmé — votre commande est bien enregistrée.",
-        PREPARING: "📦 En cours de préparation — nous préparons votre colis.",
-        SHIPPED:   "🚚 En route — votre colis est en cours de livraison.",
-        DELIVERED: "🎉 Livrée — profitez bien de votre commande !",
-      };
-      await whatsapp
-        .sendStatusUpdateToClient(order, labels[normalized])
-        .catch((err) => logger.warn("Notif WhatsApp statut échouée", { ref: order.reference, err: err.message }));
-    }
 
     // Si livrée → upsert client CRM
     if (normalized === "DELIVERED") {
