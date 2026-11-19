@@ -51,6 +51,8 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
   }
 
   if (motCleDemande(texte)) {
+    const numeroDemandeur = normaliserNumero(numero);
+    if (numeroDemandeur) await redis.del(CLE_ATTENTE_WEB(numeroDemandeur));
     demandesNumero.set(adresse, { expireLe: maintenant + ATTENTE_NUMERO_MS });
     await whatsapp.sendMessageToJid(
       adresse,
