@@ -415,6 +415,51 @@ async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link, i
   return sendMessage(clientWhatsapp, message);
 }
 
+// ── Rappel d'expiration abonnement → CLIENT ────────────────────────────────
+async function sendSubscriptionExpiryReminderWhatsapp({
+  clientWhatsapp,
+  clientName,
+  serviceName,
+  planLabel,
+  expiresAt,
+  serviceSlug,
+}) {
+  if (!clientWhatsapp) return false;
+
+  const date = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
+  if (Number.isNaN(date.getTime())) {
+    logger.warn("Rappel WhatsApp d'expiration ignoré — date illisible", {
+      serviceName,
+    });
+    return false;
+  }
+
+  const dateFr = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Africa/Porto-Novo",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+  const frontendUrl = String(
+    process.env.FRONTEND_URL || "https://mtechbenin.com",
+  ).replace(/\\/+$/, "");
+  const lien = serviceSlug
+    ? `${frontendUrl}/abonnements/${encodeURIComponent(serviceSlug)}`
+    : `${frontendUrl}/abonnements`;
+
+  const message = assembler([
+    ENTETE,
+    `Bonjour ${String(clientName || "").trim() || "cher client"},`,
+    `Votre abonnement ${serviceName}${planLabel ? ` — formule ${planLabel}` : ""} expire le *${dateFr}*.`,
+    `Sans renouvellement d'ici là, votre accès sera interrompu à cette date.`,
+    `Renouvelez dès maintenant : ${lien}`,
+    ` `,
+    SIGNATURE,
+  ]);
+
+  return sendMessage(clientWhatsapp, message);
+}
+
 // ── OTP → CLIENT ──────────────────────────────────────────────────────────────
 async function sendOTPToClient({ clientWhatsapp, clientJid, clientName, serviceName, otpCode }) {
   const message = assembler([
@@ -809,6 +854,7 @@ module.exports = {
   sendConfigurationAbonnementManquanteAlert,
   sendLinkAccessNotifToAdmin,
   sendLinkAccess,
+  sendSubscriptionExpiryReminderWhatsapp,
   sendOTPToClient,
   sendOTPFallbackToBuyer,
   sendOTPUndeliveredToAdmin,
