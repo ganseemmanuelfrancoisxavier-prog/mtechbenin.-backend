@@ -410,9 +410,7 @@ async function sendLinkAccess({ clientWhatsapp, clientName, serviceName, link, i
         : `Votre invitation ${appleServiceName} est prête`;
     const caption = assembler([
       gras(accessTitle),
-      isAppleMusic
-        ? "Cliquez sur le lien ci-dessus pour y accéder."
-        : "Touchez l'aperçu ci-dessus pour y accéder.",
+      "Cliquez sur le lien ci-dessus pour y accéder.",
       imageUrl ? appleLink : null,
       ``,
       gras("L'équipe MTECHBENIN"),
