@@ -1,5 +1,6 @@
 const logger = require("../utils/logger");
 const whatsapp = require("./whatsapp");
+const redis = require("./redis");
 const { ouvrirDemandes } = require("../modules/subscriptions/demandeCodeStore");
 const { motCleDemande, normaliserNumero } = require("../modules/subscriptions/demandeCode");
 
@@ -8,6 +9,27 @@ const { motCleDemande, normaliserNumero } = require("../modules/subscriptions/de
 // l'abonnement actif correspondant au numéro fourni.
 const demandesNumero = new Map();
 const ATTENTE_NUMERO_MS = 5 * 60 * 1000;
+
+const CLE_ATTENTE_WEB = (numero) => "otp-phone-flow:" + numero;
+
+async function demanderNumeroSouscription(numeroBrut) {
+  const numero = normaliserNumero(numeroBrut);
+  if (!numero) return false;
+
+  const cle = CLE_ATTENTE_WEB(numero);
+  await redis.set(cle, "1", { ex: ATTENTE_NUMERO_MS });
+  const envoye = await whatsapp.sendMessage(
+    numero,
+    [
+      "Bonjour. Pour vérifier votre abonnement Netflix, répondez à ce message avec le numéro utilisé lors de votre souscription.",
+      "Après nous avoir envoyé ce numéro, reconnectez-vous à Netflix et demandez un nouveau code. Nous vous le transmettrons ici dès sa réception.",
+      "Vous avez 5 minutes pour nous envoyer le numéro de souscription.",
+    ].join("\n"),
+  );
+
+  if (!envoye) await redis.del(cle);
+  return envoye;
+}
 
 // Traite un message entrant. Rend un compte rendu plutôt que rien, pour que
 // l'appelant puisse journaliser sans avoir à deviner ce qui s'est passé.
@@ -29,6 +51,8 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
   }
 
   if (motCleDemande(texte)) {
+    const numeroDemandeur = normaliserNumero(numero);
+    if (numeroDemandeur) await redis.del(CLE_ATTENTE_WEB(numeroDemandeur));
     demandesNumero.set(adresse, { expireLe: maintenant + ATTENTE_NUMERO_MS });
     await whatsapp.sendMessageToJid(
       adresse,
@@ -42,8 +66,12 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
   }
 
   const attente = demandesNumero.get(adresse);
-  if (!attente) return { traite: false, raison: "hors-sujet" };
+  const numeroDemandeur = normaliserNumero(numero);
+  const cleAttenteWeb = numeroDemandeur ? CLE_ATTENTE_WEB(numeroDemandeur) : null;
+  const attenteWeb = cleAttenteWeb ? await redis.get(cleAttenteWeb) : null;
+  if (!attente && !attenteWeb) return { traite: false, raison: "hors-sujet" };
   demandesNumero.delete(adresse);
+  if (attenteWeb) await redis.del(cleAttenteWeb);
 
   const numeroSouscription = normaliserNumero(texte);
   if (!numeroSouscription) {
@@ -95,7 +123,7 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
     adresse,
     [
       `✅ Demande enregistrée.`,
-      `\nConnectez-vous maintenant : dès que le code arrive, nous vous l'envoyons ici.`,
+      `\nReconnectez-vous à Netflix et demandez un nouveau code. Dès qu'il arrive, nous vous l'envoyons ici.`,
       services.length ? `Profil concerné : ${services.join(", ")}` : null,
       `\nCette demande reste valable 15 minutes.`,
     ]
@@ -111,4 +139,4 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
   return { traite: true, raison: "ouvertes" };
 }
 
-module.exports = { traiterMessageEntrant };
+module.exports = { traiterMessageEntrant, demanderNumeroSouscription };

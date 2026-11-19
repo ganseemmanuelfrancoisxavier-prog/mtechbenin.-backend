@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const prisma = require("../../services/prisma");
 const whatsapp = require("../../services/whatsapp");
+const whatsappEcoute = require("../../services/whatsappEcoute");
 const emailSvc = require("../../services/email");
 const logger = require("../../utils/logger");
 const { encrypt, decrypt } = require("../../utils/crypto");
@@ -2990,42 +2991,23 @@ async function demanderCode(req, res) {
     const whatsapp = req.body?.whatsapp;
     if (!whatsapp) return res.status(400).json({ error: "Numéro WhatsApp requis" });
 
-    const { raison, demandes } = await ouvrirDemandes({ numero: whatsapp, canal: "web" });
-
-    if (raison === "numero-invalide") {
-      return res.status(400).json({ error: "Numéro invalide" });
-    }
-
-    // La reponse ne dit rien, le journal du serveur dit tout.
-    //
-    // Le visiteur recoit la meme phrase dans les trois cas — c'est ce qui
-    // empeche de tester des numeros au hasard pour decouvrir qui est client.
-    // Mais rien n'etait ecrit cote serveur non plus : quand un client
-    // rapportait « votre page ne marche pas », il n'existait AUCUNE trace a
-    // consulter, et l'exploitant ne pouvait pas distinguer un numero mal saisi
-    // d'une panne reelle. Le silence etait pour le visiteur, pas pour nous.
-    if (raison === "ouvertes") {
-      logger.info(`Demande de code (web) : ${demandes?.length ?? 0} fenetre(s) ouverte(s)`, {
-        numero: whatsapp,
-      });
+    const messageEnvoye = await whatsappEcoute.demanderNumeroSouscription(whatsapp);
+    if (messageEnvoye) {
+      logger.info("Demande de code (web) : message WhatsApp envoyé");
     } else {
-      logger.warn(`Demande de code (web) sans effet — ${raison}`, { numero: whatsapp });
+      logger.warn("Demande de code (web) : message WhatsApp non envoyé");
     }
 
-    // "ouvertes", "aucune-occupation-active" et "trop-de-demandes" rendent
-    // volontairement la meme reponse : voir le commentaire de fonction.
     return res.json({
-      message:
-        "Demande enregistrée. Connectez-vous maintenant à votre service : c'est " +
-        "votre tentative de connexion qui déclenche l'envoi du code. Si rien " +
-        "n'arrive dans les minutes qui suivent, écrivez-nous sur WhatsApp.",
+      message: messageEnvoye
+        ? "Demande enregistrée. Consultez WhatsApp et répondez au message de MTECHBENIN avec le numéro utilisé lors de votre souscription. Ensuite, reconnectez-vous à Netflix et demandez un nouveau code : nous vous le transmettrons ici dès sa réception."
+        : "Demande enregistrée, mais nous n'avons pas pu vous écrire sur WhatsApp. Écrivez « CODE » dans la discussion WhatsApp de MTECHBENIN et envoyez le numéro utilisé lors de votre souscription. Ensuite, reconnectez-vous à Netflix et demandez un nouveau code.",
     });
   } catch (err) {
     logger.error("Erreur demanderCode", { err: err.message });
     return res.status(500).json({ error: "Erreur serveur" });
   }
 }
-
 // ── Journal des demandes (admin) ─────────────────────────────────────────────
 async function listerDemandes(req, res) {
   try {
