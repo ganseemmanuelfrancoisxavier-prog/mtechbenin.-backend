@@ -442,7 +442,7 @@ async function sendSubscriptionExpiryReminderWhatsapp({
   }).format(date);
   const frontendUrl = String(
     process.env.FRONTEND_URL || "https://mtechbenin.com",
-  ).replace(/\\/+$/, "");
+  ).replace(/\/+$/, "");
   const lien = serviceSlug
     ? `${frontendUrl}/abonnements/${encodeURIComponent(serviceSlug)}`
     : `${frontendUrl}/abonnements`;
