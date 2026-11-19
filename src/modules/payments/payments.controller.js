@@ -347,7 +347,7 @@ async function fedapayWebhook(req, res) {
 
     await prisma.order.update({
       where: { id: order.id },
-      data: { status: "CONFIRMED", paymentId: payment.id },
+      data: { status: "PREPARING", paymentId: payment.id },
     });
 
     if (order.couponCode) {
