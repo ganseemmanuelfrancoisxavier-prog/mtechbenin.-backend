@@ -120,9 +120,7 @@ async function traiterMessageEntrant({ adresse, numero, texte }) {
       adresse,
       [
         `Nous ne trouvons aucun abonnement actif à ce numéro.`,
-        ``,
-        `Si vous venez de payer, laissez-nous quelques minutes.`,
-        `Sinon, votre abonnement est peut-être arrivé à échéance — écrivez-nous pour le renouveler.`,
+        `Vérifiez votre numéro et réessayez en écrivant « code » dans cette discussion.`
       ].join("\n"),
     );
     return { traite: true, raison };
