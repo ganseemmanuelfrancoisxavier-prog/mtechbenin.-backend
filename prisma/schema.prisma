@@ -501,9 +501,11 @@ model SubscriptionOrder {
   // montant inclut la quantité et d'éventuels frais, ce qui rendait la durée
   // indéterminable pour 16 des 28 abonnements existants.
   expiresAt      DateTime?
-  // Horodatage du rappel. Sa présence interdit un second envoi, ce qui rend la
-  // vérification périodique rejouable sans risque de doublon.
+  // Date à laquelle le rappel par e-mail a été envoyé.
   reminderSentAt DateTime?
+  // Date à laquelle le rappel WhatsApp a été envoyé, suivie séparément pour
+  // permettre de réessayer un canal sans dupliquer l'autre.
+  reminderWhatsappSentAt DateTime?
 
   service     SubscriptionService @relation(fields: [serviceId], references: [id])
   plan        SubscriptionPlan    @relation(fields: [planId], references: [id])
