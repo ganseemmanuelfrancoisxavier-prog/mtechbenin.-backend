@@ -389,14 +389,21 @@ async function fedapayWebhook(req, res) {
       clientEmail: order.guestEmail,
     });
 
+    const commandeUniquementProduits =
+      order.items.length > 0 &&
+      order.items.every((item) => !item.productSlug?.startsWith("abonnement-"));
     const notifLabels = ["WA client", "Email client", "WA admin", "Email admin"];
     const notifResults = await Promise.allSettled([
-      whatsapp.sendOrderConfirmToClient(order),
+      commandeUniquementProduits ? whatsapp.sendOrderConfirmToClient(order) : null,
       emailSvc.sendOrderConfirmToClient({ order }),
       whatsapp.sendNewOrderToAdmin({ ...order, items: order.items }),
       emailSvc.sendOrderNotifToAdmin({ order }),
     ]);
     notifResults.forEach((r, i) => {
+      if (i === 0 && !commandeUniquementProduits) {
+        logger.info("Confirmation WhatsApp client ignorée — la commande contient un abonnement");
+        return;
+      }
       if (r.status === "rejected")
         logger.warn(`Notification échouée : ${notifLabels[i]}`, { err: r.reason?.message });
       else
