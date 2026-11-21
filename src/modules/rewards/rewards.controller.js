@@ -58,4 +58,68 @@ async function traiterRetraitAdmin(req, res) {
     return res.json(result);
   } catch (err) { logger.error("Admin process withdrawal", { err: err.message }); return res.status(500).json({ error: "Traitement impossible." }); }
 }
-module.exports = { getDashboard, demanderRetrait, listerRetraitsAdmin, traiterRetraitAdmin };
+async function listerRecompensesAdmin(req, res) {
+  try {
+    const search = String(req.query.search || "").trim();
+    const where = { accountCreatedAt: { not: null } };
+    if (search) where.OR = [
+      { name: { contains: search, mode: "insensitive" } },
+      { whatsapp: { contains: search } },
+      { referralCode: { contains: search, mode: "insensitive" } },
+    ];
+    const clients = await prisma.clientTracker.findMany({
+      where,
+      select: { whatsapp: true, name: true, referralCode: true, accountCreatedAt: true },
+      orderBy: { accountCreatedAt: "desc" }, take: 500,
+    });
+    const phones = clients.map((client) => client.whatsapp);
+    if (!phones.length) return res.json({ summary: { clients: 0, earned: 0, paid: 0, available: 0, pending: 0, due: 0 }, clients: [] });
+    const [ledger, earned, withdrawals] = await Promise.all([
+      prisma.rewardEntry.groupBy({ by: ["clientWhatsapp"], where: { clientWhatsapp: { in: phones } }, _sum: { amount: true } }),
+      prisma.rewardEntry.groupBy({ by: ["clientWhatsapp"], where: { clientWhatsapp: { in: phones }, type: { in: ["CASHBACK", "REFERRAL"] } }, _sum: { amount: true } }),
+      prisma.withdrawalRequest.groupBy({ by: ["clientWhatsapp", "status"], where: { clientWhatsapp: { in: phones } }, _sum: { amount: true } }),
+    ]);
+    const mapSums = (rows) => new Map(rows.map((row) => [row.clientWhatsapp, row._sum.amount || 0]));
+    const balances = mapSums(ledger), earnings = mapSums(earned);
+    const paid = new Map(), pending = new Map();
+    for (const row of withdrawals) {
+      if (row.status === "PAID") paid.set(row.clientWhatsapp, row._sum.amount || 0);
+      if (row.status === "REQUESTED") pending.set(row.clientWhatsapp, row._sum.amount || 0);
+    }
+    const rows = clients.map((client) => {
+      const available = balances.get(client.whatsapp) || 0;
+      const pendingAmount = pending.get(client.whatsapp) || 0;
+      return { ...client, earned: earnings.get(client.whatsapp) || 0, paid: paid.get(client.whatsapp) || 0, available, pending: pendingAmount, due: available + pendingAmount };
+    });
+    const summary = rows.reduce((acc, row) => {
+      acc.clients += 1; acc.earned += row.earned; acc.paid += row.paid;
+      acc.available += row.available; acc.pending += row.pending; acc.due += row.due;
+      return acc;
+    }, { clients: 0, earned: 0, paid: 0, available: 0, pending: 0, due: 0 });
+    return res.json({ summary, clients: rows });
+  } catch (err) {
+    logger.error("Admin rewards dashboard", { err: err.message });
+    return res.status(500).json({ error: "Impossible de charger le suivi des récompenses." });
+  }
+}
+
+async function getDetailRecompensesAdmin(req, res) {
+  try {
+    const whatsapp = decodeURIComponent(String(req.params.whatsapp || ""));
+    const client = await prisma.clientTracker.findUnique({
+      where: { whatsapp },
+      select: { whatsapp: true, name: true, referralCode: true, accountCreatedAt: true },
+    });
+    if (!client || !client.accountCreatedAt) return res.status(404).json({ error: "Compte client introuvable." });
+    const [entries, withdrawals] = await Promise.all([
+      prisma.rewardEntry.findMany({ where: { clientWhatsapp: whatsapp }, orderBy: { createdAt: "desc" }, take: 300 }),
+      prisma.withdrawalRequest.findMany({ where: { clientWhatsapp: whatsapp }, orderBy: { requestedAt: "desc" }, take: 100 }),
+    ]);
+    return res.json({ client, entries, withdrawals });
+  } catch (err) {
+    logger.error("Admin reward trace", { err: err.message });
+    return res.status(500).json({ error: "Impossible de charger la traçabilité." });
+  }
+}
+
+module.exports = { listerRecompensesAdmin, getDetailRecompensesAdmin, getDashboard, demanderRetrait, listerRetraitsAdmin, traiterRetraitAdmin };

@@ -762,6 +762,7 @@ model ClientTracker {
   totalSpent   Int      @default(0)
   points       Int      @default(0)
   referralCode String?  @unique
+  accountCreatedAt DateTime?
   rewards      RewardEntry[]
   withdrawals  WithdrawalRequest[]
   tier         String   @default("bronze")

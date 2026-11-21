@@ -6,6 +6,8 @@ const { isAdmin } = require("../../middleware/auth");
 const { strictLimiter } = require("../../middleware/rateLimiter");
 router.get("/", isClient, controller.getDashboard);
 router.post("/withdrawals", isClient, strictLimiter, controller.demanderRetrait);
+router.get("/admin/dashboard", isAdmin, controller.listerRecompensesAdmin);
+router.get("/admin/clients/:whatsapp", isAdmin, controller.getDetailRecompensesAdmin);
 router.get("/admin/withdrawals", isAdmin, controller.listerRetraitsAdmin);
 router.patch("/admin/withdrawals/:id", isAdmin, controller.traiterRetraitAdmin);
 module.exports = router;
