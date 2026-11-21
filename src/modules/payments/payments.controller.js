@@ -4,6 +4,7 @@ const emailSvc = require("../../services/email");
 const logger = require("../../utils/logger");
 const crypto = require("crypto");
 const { choisirParMontant } = require("./matching");
+const { enregistrerRecompensesPaiement } = require("../rewards/rewards.service");
 
 // ── Vérification signature FedaPay (format : "t=<ts>,s=<hmac>") ──────────────
 // Retourne true si valide, false si invalide, null si pas de secret configuré
@@ -217,7 +218,7 @@ async function fedapayWebhook(req, res) {
 
     if (subOrder) {
       logger.info(`Paiement abonnement détecté : ${subOrder.id}`);
-      await prisma.payment.create({
+      const confirmedPayment = await prisma.payment.create({
         data: {
           fedapayTxId: transactionId,
           amount,
@@ -227,6 +228,14 @@ async function fedapayWebhook(req, res) {
           rawData: event,
           subOrderId: subOrder.id,
         },
+      });
+      await enregistrerRecompensesPaiement({
+        paymentId: confirmedPayment.id,
+        buyerWhatsapp: subOrder.clientWhatsapp,
+        buyerName: subOrder.clientName,
+        referralCode: subOrder.referralCode,
+        saleAmount: subOrder.amount,
+        orderRef: subOrder.id,
       });
       const { assignSubscriptionAfterPayment } = require("../subscriptions/subscriptions.controller");
       await assignSubscriptionAfterPayment(subOrder.id);
@@ -382,6 +391,14 @@ async function fedapayWebhook(req, res) {
     }
 
     await upsertClientTracker(order);
+    await enregistrerRecompensesPaiement({
+      paymentId: payment.id,
+      buyerWhatsapp: order.guestWhatsapp,
+      buyerName: order.guestName,
+      referralCode: order.referralCode,
+      saleAmount: Math.max(0, order.subtotal - order.discount),
+      orderRef: order.reference,
+    });
 
     logger.info("Envoi notifications WhatsApp + Email", {
       clientWhatsapp: order.guestWhatsapp,
