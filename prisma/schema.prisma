@@ -780,6 +780,7 @@ model RewardEntry {
   paymentId      String?
   withdrawalId   String?
   orderRef       String?
+  saleAmount     Int?
   type           String
   amount         Int
   details        String?
