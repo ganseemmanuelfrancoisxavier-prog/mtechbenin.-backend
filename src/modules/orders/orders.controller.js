@@ -169,6 +169,7 @@ async function createOrder(req, res) {
       giftName,
       giftWhatsapp,
       couponCode,
+      referralCode,
       items,
     } = req.body;
 
@@ -181,6 +182,21 @@ async function createOrder(req, res) {
     }
     if (!guestEmail || !String(guestEmail).includes("@")) {
       return res.status(400).json({ error: "Email valide requis" });
+    }
+
+    let validatedReferralCode = null;
+    const requestedReferralCode = String(referralCode || "").trim().toUpperCase();
+    if (requestedReferralCode) {
+      const referrer = await prisma.clientTracker.findUnique({
+        where: { referralCode: requestedReferralCode },
+        select: { whatsapp: true },
+      });
+      if (!referrer) return res.status(400).json({ error: "Code de parrainage invalide." });
+      const digits = (value) => String(value || "").replace(/\\D/g, "");
+      if (digits(referrer.whatsapp).slice(-8) === digits(guestWhatsapp).slice(-8)) {
+        return res.status(400).json({ error: "Vous ne pouvez pas utiliser votre propre code." });
+      }
+      validatedReferralCode = requestedReferralCode;
     }
 
     let validatedItems;
@@ -224,6 +240,7 @@ async function createOrder(req, res) {
         feeAmount,
         total,
         couponCode: validatedCouponCode,
+        referralCode: validatedReferralCode,
         status: "PENDING",
         items: { create: validatedItems },
       },

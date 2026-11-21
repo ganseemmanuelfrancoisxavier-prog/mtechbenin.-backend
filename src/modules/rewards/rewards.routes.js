@@ -1,0 +1,11 @@
+const express = require("express");
+const router = express.Router();
+const controller = require("./rewards.controller");
+const { isClient } = require("../clientAccount/clientAccount.auth");
+const { isAdmin } = require("../../middleware/auth");
+const { strictLimiter } = require("../../middleware/rateLimiter");
+router.get("/", isClient, controller.getDashboard);
+router.post("/withdrawals", isClient, strictLimiter, controller.demanderRetrait);
+router.get("/admin/withdrawals", isAdmin, controller.listerRetraitsAdmin);
+router.patch("/admin/withdrawals/:id", isAdmin, controller.traiterRetraitAdmin);
+module.exports = router;
