@@ -11,9 +11,9 @@ const CODE_COOLDOWN_SECONDS = 60;
 const MAX_CODE_ATTEMPTS = 5;
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60;
 
-const codeKey = (phone) => \`otp:client-account:\${phone}\`;
-const cooldownKey = (phone) => \`otp:client-account:cooldown:\${phone}\`;
-const refreshKey = (sid) => \`refresh:client:\${sid}\`;
+const codeKey = (phone) => `otp:client-account:${phone}`;
+const cooldownKey = (phone) => `otp:client-account:cooldown:${phone}`;
+const refreshKey = (sid) => `refresh:client:${sid}`;
 const hashCode = (code) => crypto.createHash("sha256").update(code).digest("hex");
 
 function normaliserTelephone(value) {
@@ -81,7 +81,7 @@ async function demanderCode(req, res) {
 
     let sent = await whatsapp.sendMessage(
       whatsappNumber,
-      \`Votre code de création de compte MTECHBENIN est : \${code}. Il expire dans 5 minutes. Ne le partagez avec personne.\`,
+      `Votre code de création de compte MTECHBENIN est : ${code}. Il expire dans 5 minutes. Ne le partagez avec personne.`,
     );
     let channel = "WhatsApp";
     if (!sent && clientEmail) {
@@ -98,7 +98,7 @@ async function demanderCode(req, res) {
           : "WhatsApp est momentanément indisponible. Ajoutez un e-mail ou réessayez plus tard.",
       });
     }
-    return res.json({ message: \`Code envoyé par \${channel}.\` });
+    return res.json({ message: `Code envoyé par ${channel}.` });
   } catch (err) {
     logger.error("Erreur demande code compte client", { err: err.message });
     return res.status(500).json({ error: "Impossible d’envoyer le code pour le moment." });
