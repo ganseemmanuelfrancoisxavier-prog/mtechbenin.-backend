@@ -134,8 +134,8 @@ async function verifierCode(req, res) {
     await redis.del(key);
     const client = await prisma.clientTracker.upsert({
       where: { whatsapp: whatsappNumber },
-      update: { name: challenge.name },
-      create: { whatsapp: whatsappNumber, name: challenge.name },
+      update: { name: challenge.name, accountCreatedAt: new Date() },
+      create: { whatsapp: whatsappNumber, name: challenge.name, accountCreatedAt: new Date() },
       select: { whatsapp: true, name: true, totalOrders: true, totalSpent: true, points: true, tier: true },
     });
     const accessToken = await creerSession(res, client);
@@ -196,6 +196,7 @@ async function logout(req, res) {
 }
 
 async function getMe(req, res) {
+  await prisma.clientTracker.updateMany({ where: { whatsapp: req.client.whatsapp, accountCreatedAt: null }, data: { accountCreatedAt: new Date() } });
   const client = await prisma.clientTracker.findUnique({
     where: { whatsapp: req.client.whatsapp },
     select: { whatsapp: true, name: true, totalOrders: true, totalSpent: true, points: true, tier: true },
