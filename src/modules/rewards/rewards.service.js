@@ -29,13 +29,13 @@ async function enregistrerRecompensesPaiement({ paymentId, buyerWhatsapp, buyerN
   });
   const rewards = [];
   const cashback = Math.floor(base * 0.10);
-  if (cashback) rewards.push({ clientWhatsapp: buyerPhone, paymentId, orderRef, type: "CASHBACK", amount: cashback, details: "Cashback de 10 % sur achat confirmé" });
+  if (cashback) rewards.push({ clientWhatsapp: buyerPhone, paymentId, orderRef, saleAmount: base, type: "CASHBACK", amount: cashback, details: "Cashback de 10 % sur achat confirmé" });
   const code = String(referralCode || "").trim().toUpperCase();
   if (code) {
     const referrer = await prisma.clientTracker.findUnique({ where: { referralCode: code }, select: { whatsapp: true } });
     if (referrer && normaliserTelephone(referrer.whatsapp).slice(-8) !== buyerPhone.slice(-8)) {
       const commission = Math.floor(base * 0.20);
-      if (commission) rewards.push({ clientWhatsapp: referrer.whatsapp, paymentId, orderRef, type: "REFERRAL", amount: commission, details: "Commission de parrainage de 20 %" });
+      if (commission) rewards.push({ clientWhatsapp: referrer.whatsapp, paymentId, orderRef, saleAmount: base, type: "REFERRAL", amount: commission, details: "Commission de parrainage de 20 %" });
     }
   }
   if (rewards.length) await prisma.rewardEntry.createMany({ data: rewards, skipDuplicates: true });
