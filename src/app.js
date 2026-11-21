@@ -47,6 +47,7 @@ const { isAdmin } = require("./middleware/auth");
 
 // Routes
 const authRoutes = require("./modules/auth/auth.routes");
+const clientAccountRoutes = require("./modules/clientAccount/clientAccount.routes");
 const ordersRoutes = require("./modules/orders/orders.routes");
 const paymentsRoutes = require("./modules/payments/payments.routes");
 const productsRoutes = require("./modules/products/products.routes");
@@ -187,6 +188,7 @@ app.get(["/health", "/api/health"], (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/client-account", clientAccountRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/products", productsRoutes);
