@@ -30,6 +30,7 @@ model Order {
   feeAmount     Int         @default(0)
   total         Int
   couponCode    String?
+  referralCode  String?
   status        OrderStatus @default(PENDING)
   paymentId     String?     @unique
   createdAt     DateTime    @default(now())
@@ -486,6 +487,7 @@ model SubscriptionOrder {
   clientName     String
   clientWhatsapp String
   clientEmail    String?
+  referralCode   String?
   amount         Int
   status         String    @default("PENDING")
   paymentId      String?   @unique
@@ -759,6 +761,9 @@ model ClientTracker {
   totalOrders  Int      @default(0)
   totalSpent   Int      @default(0)
   points       Int      @default(0)
+  referralCode String?  @unique
+  rewards      RewardEntry[]
+  withdrawals  WithdrawalRequest[]
   tier         String   @default("bronze")
   firstOrderAt DateTime @default(now())
   lastOrderAt  DateTime @default(now())
@@ -766,6 +771,40 @@ model ClientTracker {
 
   @@index([points])
   @@index([tier])
+}
+
+model RewardEntry {
+  id             String   @id @default(cuid())
+  clientWhatsapp String
+  paymentId      String?
+  withdrawalId   String?
+  orderRef       String?
+  type           String
+  amount         Int
+  details        String?
+  createdAt      DateTime @default(now())
+
+  client ClientTracker @relation(fields: [clientWhatsapp], references: [whatsapp], onDelete: Cascade)
+
+  @@unique([paymentId, clientWhatsapp, type])
+  @@unique([withdrawalId, type])
+  @@index([clientWhatsapp, createdAt])
+}
+
+model WithdrawalRequest {
+  id             String   @id @default(cuid())
+  clientWhatsapp String
+  amount         Int
+  payoutNumber   String
+  status         String   @default("REQUESTED")
+  requestedAt    DateTime @default(now())
+  processedAt    DateTime?
+  adminNote      String?
+
+  client ClientTracker @relation(fields: [clientWhatsapp], references: [whatsapp], onDelete: Cascade)
+
+  @@index([status, requestedAt])
+  @@index([clientWhatsapp, requestedAt])
 }
 
 // ── Hero Médias ───────────────────────────────────────────────────────────────
