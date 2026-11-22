@@ -238,7 +238,7 @@ async function fedapayWebhook(req, res) {
         orderRef: subOrder.id,
       });
       const { assignSubscriptionAfterPayment } = require("../subscriptions/subscriptions.controller");
-      await assignSubscriptionAfterPayment(subOrder.id);
+      await assignSubscriptionAfterPayment(subOrder.id, confirmedPayment.paidAt);
       logger.info(`✅ Abonnement ${subOrder.id} traité via webhook`);
       return;
     }
@@ -444,7 +444,7 @@ async function fedapayWebhook(req, res) {
       const { assignSubscriptionFromOrderItem } = require("../subscriptions/subscriptions.controller");
       for (const item of subscriptionItems) {
         const planId = item.productSlug.replace("abonnement-", "");
-        await assignSubscriptionFromOrderItem({ planId, order }).catch((err) =>
+        await assignSubscriptionFromOrderItem({ planId, order, paidAt: payment.paidAt }).catch((err) =>
           logger.warn("Erreur assignation abonnement item", {
             planId,
             err: err.message,
