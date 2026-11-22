@@ -359,15 +359,18 @@ async function fedapayWebhook(req, res) {
       return;
     }
 
-    if (amount !== order.total) {
+    // Le checkout envoie à FedaPay le total hors frais de service ; les frais
+    // restent à la charge de la boutique et ne font pas partie du débit client.
+    const montantFedaPayAttendu = order.total - (order.feeAmount || 0);
+    if (amount !== montantFedaPayAttendu) {
       logger.error("Montant FedaPay différent du montant attendu pour la commande", {
-        transactionId, orderRef: order.reference, amount, expected: order.total,
+        transactionId, orderRef: order.reference, amount, expected: montantFedaPayAttendu,
       });
       await alerterAdmin("Montant de paiement commande incohérent", [
         `Transaction : ${transactionId}`,
         `Commande : ${order.reference}`,
         `Montant reçu : ${amount} FCFA`,
-        `Montant attendu : ${order.total} FCFA`,
+        `Montant attendu : ${montantFedaPayAttendu} FCFA`,
         `Aucune confirmation automatique n'a été effectuée.`,
       ]);
       return;
