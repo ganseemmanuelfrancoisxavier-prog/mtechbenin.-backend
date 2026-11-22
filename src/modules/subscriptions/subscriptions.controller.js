@@ -930,7 +930,11 @@ async function getAllOrders(req, res) {
     const [orders, total] = await Promise.all([
       prisma.subscriptionOrder.findMany({
         where,
-        include: { service: true, plan: true },
+        include: {
+          service: true,
+          plan: true,
+          payment: { select: { paidAt: true } },
+        },
         orderBy: { createdAt: "desc" },
         skip: (Number(page) - 1) * Number(limit),
         take: Number(limit),
