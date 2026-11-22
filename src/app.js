@@ -26,7 +26,8 @@ function timingSafeEqualStr(a, b) {
 // désormais que les deux valeurs existent réellement.
 function jetonQrValide(jeton) {
   const secret = process.env.QR_SECRET;
-  if (!secret || !jeton) return false;
+  // La valeur d'exemple du dépôt est publique et ne doit jamais autoriser l'accès.
+  if (!secret || !jeton || secret === "mtechbenin_qr_2026") return false;
   return timingSafeEqualStr(jeton, secret);
 }
 const { apiLimiter, qrLimiter } = require("./middleware/rateLimiter");
