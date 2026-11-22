@@ -317,7 +317,7 @@ function dechiffrerIdentifiants(account) {
 }
 
 // ── Attribution automatique après paiement ────────────────────────────────────
-async function assignSubscriptionAfterPayment(subOrderId) {
+async function assignSubscriptionAfterPayment(subOrderId, paidAt) {
   const subOrder = await prisma.subscriptionOrder.findUnique({
     where: { id: subOrderId },
     include: { service: true },
@@ -459,6 +459,7 @@ async function assignSubscriptionAfterPayment(subOrderId) {
         name: subOrder.clientName,
         whatsapp: subOrder.clientWhatsapp,
         email: subOrder.clientEmail || null,
+        paidAt,
         status: "en_attente",
       },
     });
@@ -481,7 +482,7 @@ async function assignSubscriptionAfterPayment(subOrderId) {
 }
 
 // ── Attribution depuis un item de commande panier (avec gestion cadeau) ────────
-async function assignSubscriptionFromOrderItem({ planId, order }) {
+async function assignSubscriptionFromOrderItem({ planId, order, paidAt }) {
   const plan = await prisma.subscriptionPlan.findUnique({
     where: { id: planId },
     include: { service: true },
@@ -757,6 +758,7 @@ async function assignSubscriptionFromOrderItem({ planId, order }) {
         // par WhatsApp ; si cet envoi échoue, la ligne reste « en_attente » et
         // l'administrateur la traite à la main.
         email: isGift ? null : order.guestEmail || null,
+        paidAt,
         link: null,
         status: "en_attente",
       },
