@@ -258,9 +258,18 @@ async function getOrderByRef(req, res) {
   try {
     const order = await prisma.order.findUnique({
       where: { reference: req.params.ref },
-      include: {
-        items: true,
-        payment: { select: { fedapayTxId: true, amount: true, method: true, status: true, paidAt: true } },
+      // La référence peut être partagée : limiter les données visibles au strict nécessaire
+      // pour le suivi public, sans exposer le téléphone, l'e-mail, les notes,
+      // les coordonnées GPS ni les identifiants de paiement.
+      select: {
+        reference: true,
+        status: true,
+        createdAt: true,
+        total: true,
+        city: true,
+        neighborhood: true,
+        guestName: true,
+        items: { select: { productName: true, quantity: true, unitPrice: true } },
       },
     });
     if (!order) return res.status(404).json({ error: "Commande introuvable" });
