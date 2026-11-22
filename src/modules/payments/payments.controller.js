@@ -3,6 +3,7 @@ const whatsapp = require("../../services/whatsapp");
 const emailSvc = require("../../services/email");
 const logger = require("../../utils/logger");
 const crypto = require("crypto");
+const { choisirParMontant } = require("./matching");
 const { enregistrerRecompensesPaiement } = require("../rewards/rewards.service");
 
 // ── Vérification signature FedaPay (format : "t=<ts>,s=<hmac>") ──────────────
@@ -20,11 +21,11 @@ function verifyFedaPaySignature(rawBody, header, secret) {
     return acc;
   }, { timestamp: -1, signature: null });
 
-  if (!Number.isSafeInteger(parts.timestamp) || parts.timestamp <= 0 || !parts.signature) return false;
+  if (parts.timestamp === -1 || !parts.signature) return false;
 
   // Tolérance : 10 minutes (600s) pour absorber les retards Render free tier
   const age = Math.floor(Date.now() / 1000) - parts.timestamp;
-  if (Math.abs(age) > 600) {
+  if (age > 600) {
     logger.warn("Webhook FedaPay timestamp expiré", { age, timestamp: parts.timestamp });
     return false;
   }
@@ -156,11 +157,6 @@ async function fedapayWebhook(req, res) {
       return;
     }
 
-    if (!Number.isSafeInteger(amount) || amount <= 0) {
-      logger.warn("Montant FedaPay invalide — webhook ignoré", { transactionId, amount });
-      return;
-    }
-
     // Anti-double traitement
     const existing = await prisma.payment.findUnique({
       where: { fedapayTxId: transactionId },
@@ -187,12 +183,6 @@ async function fedapayWebhook(req, res) {
         include: { items: true },
       });
       if (order) logger.info(`Commande trouvée par référence : ${orderRef}`);
-      if (!order) {
-        logger.warn("Référence de commande inconnue ou déjà traitée — aucun rapprochement automatique", {
-          orderRef, transactionId,
-        });
-        return;
-      }
     }
 
     // ── Sinon, commande abonnement — UNIQUEMENT si elle est désignée ─────────
@@ -228,19 +218,6 @@ async function fedapayWebhook(req, res) {
 
     if (subOrder) {
       logger.info(`Paiement abonnement détecté : ${subOrder.id}`);
-      if (amount !== subOrder.amount) {
-        logger.error("Montant FedaPay différent du montant attendu pour l'abonnement", {
-          transactionId, subOrderId: subOrder.id, amount, expected: subOrder.amount,
-        });
-        await alerterAdmin("Montant de paiement abonnement incohérent", [
-          `Transaction : ${transactionId}`,
-          `Commande abonnement : ${subOrder.id}`,
-          `Montant reçu : ${amount} FCFA`,
-          `Montant attendu : ${subOrder.amount} FCFA`,
-          `Aucune livraison automatique n'a été effectuée.`,
-        ]);
-        return;
-      }
       const confirmedPayment = await prisma.payment.create({
         data: {
           fedapayTxId: transactionId,
@@ -295,19 +272,6 @@ async function fedapayWebhook(req, res) {
     }
 
     if (repair) {
-      if (amount !== repair.total) {
-        logger.error("Montant FedaPay différent du montant attendu pour la réparation", {
-          transactionId, repairRef: repair.reference, amount, expected: repair.total,
-        });
-        await alerterAdmin("Montant de paiement réparation incohérent", [
-          `Transaction : ${transactionId}`,
-          `Réparation : ${repair.reference}`,
-          `Montant reçu : ${amount} FCFA`,
-          `Montant attendu : ${repair.total} FCFA`,
-          `Aucune confirmation automatique n'a été effectuée.`,
-        ]);
-        return;
-      }
       await prisma.payment.create({
         data: {
           fedapayTxId: transactionId,
@@ -325,20 +289,39 @@ async function fedapayWebhook(req, res) {
       return;
     }
 
-    // ── Ne jamais rattacher un paiement produit à une commande par montant ──
-    // Sans référence signée, le montant seul ne prouve pas quelle commande a été payée.
+    // ── Commande produit non trouvée par référence — fallback par montant le
+    // plus proche (commandes sans custom_metadata) ───────────────────────────
+    // Ce repli ne sert qu'aux paiements sans métadonnées (anciens widgets). Il
+    // refuse maintenant de départager des candidats à égalité de montant.
     if (!order) {
-      logger.warn("Paiement sans référence de commande — aucun rapprochement par montant", {
-        transactionId, amount,
+      const candidates = await prisma.order.findMany({
+        where: { status: "PENDING", total: { gte: amount - 500, lte: amount + 500 } },
+        include: { items: true },
       });
-      await alerterAdmin(`Paiement ${amount} F sans référence de commande`, [
-        `Paiement encaissé, commande non identifiée.`,
-        `Transaction : ${transactionId}`,
-        `Montant : ${amount} FCFA`,
-        `Aucune livraison automatique n'a été effectuée.`,
-        `Rapprochez la commande manuellement dans le panel.`,
-      ]);
-      return;
+      const choix = choisirParMontant(candidates, amount, (o) => o.total);
+      order = choix.candidat;
+
+      if (order) {
+        logger.info(`Commande trouvée par montant : ${order.reference}`);
+      } else if (choix.raison === "ambigu") {
+        logger.error("Paiement non rattaché — plusieurs commandes au même montant", {
+          transactionId,
+          amount,
+          exAequo: choix.exAequo,
+        });
+        await alerterAdmin(`Paiement ${amount} F non rattaché — commandes indiscernables`, [
+          `⚠️ *Paiement encaissé, commande non identifiée*`,
+          ``,
+          `Transaction : ${transactionId}`,
+          `Montant : *${amount} FCFA*`,
+          ``,
+          `${choix.exAequo} commandes en attente ont exactement ce montant.`,
+          `Impossible de savoir laquelle a été payée sans deviner.`,
+          ``,
+          `➡️ Confirmez la bonne commande à la main dans le panel.`,
+        ]);
+        return;
+      }
     }
 
     if (!order) {
@@ -355,23 +338,6 @@ async function fedapayWebhook(req, res) {
         orderRef ? `Référence annoncée : ${orderRef}` : `Aucune référence transmise`,
         ``,
         `➡️ À rapprocher manuellement dans le panel.`,
-      ]);
-      return;
-    }
-
-    // Le checkout envoie à FedaPay le total hors frais de service ; les frais
-    // restent à la charge de la boutique et ne font pas partie du débit client.
-    const montantFedaPayAttendu = order.total - (order.feeAmount || 0);
-    if (amount !== montantFedaPayAttendu) {
-      logger.error("Montant FedaPay différent du montant attendu pour la commande", {
-        transactionId, orderRef: order.reference, amount, expected: montantFedaPayAttendu,
-      });
-      await alerterAdmin("Montant de paiement commande incohérent", [
-        `Transaction : ${transactionId}`,
-        `Commande : ${order.reference}`,
-        `Montant reçu : ${amount} FCFA`,
-        `Montant attendu : ${montantFedaPayAttendu} FCFA`,
-        `Aucune confirmation automatique n'a été effectuée.`,
       ]);
       return;
     }
