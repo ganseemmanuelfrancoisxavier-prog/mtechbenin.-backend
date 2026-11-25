@@ -256,11 +256,10 @@ async function createOrder(req, res) {
 
 async function getOrderByRef(req, res) {
   try {
-    const order = await prisma.order.findUnique({
+    const commande = await prisma.order.findUnique({
       where: { reference: req.params.ref },
-      // La référence peut être partagée : limiter les données visibles au strict nécessaire
-      // pour le suivi public, sans exposer le téléphone, l'e-mail, les notes,
-      // les coordonnées GPS ni les identifiants de paiement.
+      // La référence peut être partagée : les champs internes au calcul du
+      // statut (slug des articles et date de paiement) ne sont jamais renvoyés.
       select: {
         reference: true,
         status: true,
@@ -269,10 +268,55 @@ async function getOrderByRef(req, res) {
         city: true,
         neighborhood: true,
         guestName: true,
-        items: { select: { productName: true, quantity: true, unitPrice: true } },
+        payment: { select: { status: true, paidAt: true } },
+        items: {
+          select: {
+            productSlug: true,
+            productName: true,
+            quantity: true,
+            unitPrice: true,
+          },
+        },
       },
     });
-    if (!order) return res.status(404).json({ error: "Commande introuvable" });
+    if (!commande) return res.status(404).json({ error: "Commande introuvable" });
+
+    const statutsPayes = ["CONFIRMED", "PREPARING", "SHIPPED", "DELIVERED"];
+    const estPayee =
+      commande.payment?.status === "CONFIRMED" ||
+      statutsPayes.includes(commande.status);
+    const datePaiement = commande.payment?.paidAt || commande.createdAt;
+    const estAbonnementUniquement =
+      commande.items.length > 0 &&
+      commande.items.every((item) => item.productSlug?.startsWith("abonnement-"));
+    const delaiLivraisonMs = estAbonnementUniquement
+      ? 10 * 60 * 1000
+      : 10 * 60 * 60 * 1000;
+    const tempsEcouleMs = Date.now() - new Date(datePaiement).getTime();
+    const statut =
+      commande.status !== "CANCELLED" &&
+      estPayee &&
+      Number.isFinite(tempsEcouleMs) &&
+      tempsEcouleMs >= delaiLivraisonMs
+        ? "DELIVERED"
+        : commande.status;
+
+    // Préserve la réponse publique actuelle : aucune date ou information de
+    // paiement, téléphone, e-mail, note ou coordonnée n'est exposé.
+    const order = {
+      reference: commande.reference,
+      status: statut,
+      createdAt: commande.createdAt,
+      total: commande.total,
+      city: commande.city,
+      neighborhood: commande.neighborhood,
+      guestName: commande.guestName,
+      items: commande.items.map(({ productName, quantity, unitPrice }) => ({
+        productName,
+        quantity,
+        unitPrice,
+      })),
+    };
     return res.json({ order });
   } catch (err) {
     logger.error("Erreur getOrderByRef", { err: err.message });
