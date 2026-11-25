@@ -294,12 +294,16 @@ async function getOrderByRef(req, res) {
       : 10 * 60 * 60 * 1000;
     const tempsEcouleMs = Date.now() - new Date(datePaiement).getTime();
     const statut =
-      commande.status !== "CANCELLED" &&
-      estPayee &&
-      Number.isFinite(tempsEcouleMs) &&
-      tempsEcouleMs >= delaiLivraisonMs
-        ? "DELIVERED"
-        : commande.status;
+      commande.status === "CANCELLED" ||
+      commande.status === "DELIVERED" ||
+      !estPayee ||
+      !Number.isFinite(tempsEcouleMs)
+        ? commande.status
+        : tempsEcouleMs >= delaiLivraisonMs
+          ? "DELIVERED"
+          : tempsEcouleMs >= 5 * 60 * 1000
+            ? "SHIPPED"
+            : commande.status;
 
     // Préserve la réponse publique actuelle : aucune date ou information de
     // paiement, téléphone, e-mail, note ou coordonnée n'est exposé.
