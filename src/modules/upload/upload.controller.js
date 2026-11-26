@@ -15,7 +15,7 @@ async function createUploadSignature(req, res) {
   if (!DOSSIERS_UPLOAD.has(folder)) {
     return res.status(400).json({ error: "Dossier d’upload invalide" });
   }
-  if (resourceType !== "image" && resourceType !== "video") {
+  if (!["image", "video", "raw"].includes(resourceType)) {
     return res.status(400).json({ error: "Type de média invalide" });
   }
 
@@ -27,10 +27,12 @@ async function createUploadSignature(req, res) {
   }
 
   const timestamp = Math.floor(Date.now() / 1000);
-  const transformation = resourceType === "video"
-    ? "q_auto/c_limit,w_1280"
-    : "q_auto,f_webp/c_limit,w_1200";
-  const signedParams = { folder, timestamp, transformation };
+  const signedParams = { folder, timestamp };
+  if (resourceType !== "raw") {
+    signedParams.transformation = resourceType === "video"
+      ? "q_auto/c_limit,w_1280"
+      : "q_auto,f_webp/c_limit,w_1200";
+  }
 
   try {
     const signature = cloudinary.utils.api_sign_request(signedParams, apiSecret);
