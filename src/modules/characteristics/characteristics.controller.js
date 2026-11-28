@@ -6,7 +6,7 @@ async function listCharacteristics(req, res) {
     const characteristics = await prisma.characteristic.findMany({
       orderBy: { name: "asc" },
       include: {
-        values: { orderBy: [{ sortOrder: "asc" }, { value: "asc" }] },
+        values: { orderBy: [{ sortOrder: "asc" }, { value: "asc" }], include: { _count: { select: { usedBy: true } } } },
         _count: { select: { usedBy: true } },
       },
     });
@@ -155,14 +155,36 @@ async function updateValue(req, res) {
       data.value = v;
     }
     if (req.body.sortOrder !== undefined) data.sortOrder = Number(req.body.sortOrder) || 0;
-    const updated = await prisma.characteristicValue.update({
+    if (!Object.keys(data).length) return res.status(400).json({ error: "Aucune modification à enregistrer." });
+
+    const current = await prisma.characteristicValue.findUnique({
       where: { id: req.params.valueId },
-      data,
+      include: { usedBy: { include: { variantType: { include: { product: { select: { id: true, name: true } } } } } } },
     });
-    return res.json({ value: updated });
+    if (!current) return res.status(404).json({ error: "Valeur introuvable." });
+
+    const products = new Map();
+    for (const option of current.usedBy || []) {
+      const product = option.variantType?.product;
+      if (product) products.set(product.id, product.name);
+    }
+
+    const operations = [
+      prisma.characteristicValue.update({ where: { id: req.params.valueId }, data }),
+    ];
+    if (data.value !== undefined) {
+      operations.push(
+        prisma.productVariantOption.updateMany({
+          where: { valueId: req.params.valueId },
+          data: { value: data.value },
+        }),
+      );
+    }
+    const [updated] = await prisma.$transaction(operations);
+    return res.json({ value: updated, produitsMisAJour: data.value !== undefined ? products.size : 0 });
   } catch (err) {
     if (err.code === "P2002") {
-      return res.status(409).json({ error: "Cette valeur existe déjà." });
+      return res.status(409).json({ error: "Cette valeur existe déjà pour cette caractéristique." });
     }
     logger.error("Erreur updateValue", { err: err.message });
     return res.status(400).json({ error: "Modification impossible" });
